@@ -45,24 +45,28 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
 -- Output: Column with fields from input or default Column
 
 -- default Column
-M.Column = {row_count = 1, bits = {0x0}}
+M.Column = {row_count = 0, bits = {}}
 
 function M.Column:new(obj)
+  local newObj
   if obj then
-    assert(math.tointeger(obj.row_count) and math.tointeger(obj.row_count) > 0, "Column:new: row_count must a non-negative integer but got: "..tostring(obj.row_count))
+    assert(math.tointeger(obj.row_count) and math.tointeger(obj.row_count) >= 0, "Column:new: row_count must a non-negative integer but got: "..tostring(obj.row_count))
     -- assert(type(obj.bits) == "string", "Column:new bits must be a packed string but got: "..tostring(obj.bits))
-    assert(type(obj.bits) == "table", "Column:new: bits must be a table of integers but got: "..tostring(obj.bits))
+    assert(type(obj.bits) == "table", "Column:new: bits must be a table of integers or empty table but got: "..tostring(obj.bits))
     for _,o in ipairs(obj.bits) do
       assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column:new: takes integers but got: "..tostring(o))
     end
+    newObj = {
+      row_count = obj.row_count,
+      bits = obj.bits
+    }
   else
-    obj = {
+    newObj = {
       row_count = M.Column.row_count,
       -- bits = string.pack(PACK_FORMAT,0x0)
       bits = M.Column.bits
     }
   end
-  local newObj = {row_count = obj.row_count, bits = obj.bits}
   self.__index = self
   return setmetatable(newObj, self)
 end
@@ -77,7 +81,7 @@ function M.Column:fromints(...)
   end
 
   for _,o in ipairs(input) do
-    assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column.fromints: takes integers or table of them but got: "..tostring(o))
+    assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column.fromints: takes integers or table of them (or empty table) but got: "..tostring(o))
   end
 
   return M.Column:new({
@@ -171,10 +175,10 @@ function M.Column:__lt(obj)
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:__lt requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-  local res = true
+  local res = false
   for i = 1, #ints1 do
-    if ints1[i] >= ints2[i] then
-      res = false
+    if ints1[i] < ints2[i] then
+      res = true
     end
   end
   return res
@@ -233,29 +237,35 @@ end
 --]]
 function M.Column:column_diff(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number" and type(obj.bits) == "table", "Column:column_diff: takes a Column but got: "..tostring(obj))
-  assert(self.row_count == obj.row_count, "Column:column_diff: row_counts must be the same but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
-  local c1, c2, diff, current_diff
-  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-  local rest_bits = self.row_count % 8
-  c1 = {self:toints()}
-  c2 = {obj:toints()}
-  diff = 0
+  assert(self.row_count == obj.row_count or #self.bits == 0 or #obj.bits == 0, "Column:column_diff: row_counts must be the same for non-empty Column but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
+  local diff, c1, c2, current_diff, whole_ints, rest_bits
+  if #self.bits == 0 then
+    diff = #obj.bits
+  elseif #obj.bits == 0 then
+    diff = #self.bits
+  else
+    whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+    rest_bits = self.row_count % 8
+    c1 = {self:toints()}
+    c2 = {obj:toints()}
+    diff = 0
 
-  -- unpack whole words
-  for i = 1, whole_ints do
-    current_diff = c1[i] ~ c2[i]
-    for j = 1, M.ROWS_PER_UNSIGNED do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
+    -- unpack whole words
+    for i = 1, whole_ints do
+      current_diff = c1[i] ~ c2[i]
+      for j = 1, M.ROWS_PER_UNSIGNED do
+        diff = diff + (current_diff & 0x01)
+        current_diff = current_diff >> 1
+      end
     end
-  end
 
-  -- collect remaining rows
-  if rest_bits > 0 then
-    current_diff = c1[#c1] ~ c2[#c2]
-    for i = 1, rest_bits do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
+    -- collect remaining rows
+    if rest_bits > 0 then
+      current_diff = c1[#c1] ~ c2[#c2]
+      for i = 1, rest_bits do
+        diff = diff + (current_diff & 0x01)
+        current_diff = current_diff >> 1
+      end
     end
   end
   return diff
@@ -266,7 +276,7 @@ end
 --]]
 
 -- default Relation
-M.Relation = {row_count =1, column_count = 1, bitfield = {{0x0}}}
+M.Relation = {row_count = 0, column_count = 0, bitfield = {}}
 
 -- new creates a new Relation with fields row_count, column_count, bitfield
 -- Input: nil or table of fields row_count, column_count, bitfield
@@ -275,24 +285,28 @@ M.Relation = {row_count =1, column_count = 1, bitfield = {{0x0}}}
 --        bitfield is a table of Columns
 -- Output: Column with fields from Input or default Column
 function M.Relation:new(obj)
-  local bf = nil
+  local newObj = {}
   if obj then
     assert(type(obj) == "table", "Relation:new: takes {row_count, column_count, bitfield} or nothing but got: "..tostring(obj))
-    assert(math.tointeger(obj.row_count) and obj.row_count > 0, "Relation:new: row_count must be a positive integer but got: "..tostring(obj.row_count))
-    assert(math.tointeger(obj.column_count) and obj.column_count > 0, "Relation:new: column_count must be a positive integer but got: "..tostring(obj[1]))
-    assert(type(obj.bitfield) == "table", "Relation:new: bitfield must be a table of Columns but got: "..tostring(obj))
+    assert(math.tointeger(obj.row_count) and obj.row_count >= 0, "Relation:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
+    assert(math.tointeger(obj.column_count) and obj.column_count >= 0, "Relation:new: column_count must be a non-negative integer but got: "..tostring(obj[1]))
+    assert(type(obj.bitfield) == "table", "Relation:new: bitfield must be a (maybe empty) table of Columns but got: "..tostring(obj))
     for i = 1, #obj.bitfield do
       -- assert(type(obj.bitfield[i]) == "table" and obj.bitfield[i].row_count and obj.bitfield[i].bits, "Relation:new bifields must be a table of columns but got element "..tostring(i)..": "..tostring(obj.bitfield[i]))
       M.Column:new(obj.bitfield[i]) -- just to check validity
     end
+    newObj = {
+      row_count = obj.row_count,
+      column_count = obj.column_count,
+      bitfield = obj.bitfield
+    }
   else
-    obj = {
-      row_count = 1,
-      column_count = 1,
-      bitfield = {M.Column:new()}
+    newObj = {
+      row_count = M.Relation.row_count,
+      column_count = M.Relation.column_count,
+      bitfield = M.Relation.bitfield
     }
   end
-  local newObj = {row_count = obj.row_count, column_count = obj.column_count, bitfield = obj.bitfield}
   self.__index = self
   return setmetatable(newObj, self)
 end
@@ -305,9 +319,10 @@ function M.Relation:fromcols(...)
   if #input == 1 and type(input[1]) == "table" and not input[1].bits then
     input = input[1]
   end
-  local col1_row_count = input[1].row_count or error("Relation:fromcols takes Columns or a list of them but got: "..tostring(input[1]))
+  assert(type(input[1]) == "table" and math.tointeger(input[1].row_count), "Relation:fromcols takes Columns or a (maybe empty) list of them but got: "..tostring(input[1]))
+  local col1_row_count = input[1].row_count
   for _, o in ipairs(input) do
-    assert(type(o) == "table" and o.row_count and o.bits, "Relation:fromcols takes Columns or a list of them but got: "..tostring(o))
+    assert(type(o) == "table" and o.row_count and o.bits, "Relation:fromcols takes Columns or a (maybe empty) list of them but got: "..tostring(o))
     assert(o.row_count == col1_row_count, "Relation:fromcols requires same row_count for all input Columns but: "..tostring(o.row_count).." ~= "..tostring(col1_row_count))
   end
   return M.Relation:new({
@@ -407,6 +422,7 @@ function M.Relation:__sub(obj)
       end
     end
   end
+  print(string.format('rel1 - rel2 found: %s cols',#new_cols))
   res = M.Relation:fromcols(new_cols)
   res.row_count = self.row_count
   return res
