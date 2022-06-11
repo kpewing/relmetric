@@ -4,8 +4,6 @@
   rel_test
 --]]
 
-DEBUG = false
-
 local RM = require("relmetric")
 
 local r1 = RM.Relation:new({

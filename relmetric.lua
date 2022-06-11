@@ -5,6 +5,11 @@
 -- set up as a module
 local M = {}
 
+-- ENVIRONMENT VARIABLE: CHK_WT_BOTH_DIRS
+-- whether to check min weight in both directions or rely on Property 2 that
+--   if #Y1<=#Y2, then distance(R1,R2) = min weight(g|Y1-Y2))
+M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
+
 --[[
   /* A Relation is represented via an array of Columns.,
   * Each Column is represented by a list of integers,
@@ -123,7 +128,7 @@ end
 
 -- equality of Columns
 function M.Column:__eq(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:__eq takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__eq takes Columns but got: "..tostring(obj))
   local res = true
   if self.row_count ~= obj.row_count then
     res = false
@@ -145,7 +150,7 @@ end
 
 -- less than or equal for Columns
 function M.Column:__le(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:__le takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__le takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__le requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   local ints1 = self:toints()
   local ints2 = obj:toints()
@@ -161,7 +166,7 @@ end
 
 -- less than for Columns
 function M.Column:__lt(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:__lt takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__lt takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__lt requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   local ints1 = self:toints()
   local ints2 = obj:toints()
@@ -177,7 +182,7 @@ end
 
 -- __band for Columns
 function M.Column:__band(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:__band takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__band takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__band requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   local ints1 = self:toints()
   local ints2 = obj:toints()
@@ -191,7 +196,7 @@ end
 
 -- __bor for Columns
 function M.Column:__bor(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:__bor takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__bor takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__bor requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   local ints1 = self:toints()
   local ints2 = obj:toints()
@@ -207,7 +212,7 @@ end
 -- Input:  a Column
 -- Output: boolean whether input and self share a relation in any row
 function M.Column:any_joint_col(obj)
-  assert(type(obj) == "table" and obj.row_count, "Column:any_joint_row takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:any_joint_row takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:any_joint_row requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   local ints1 = self:toints()
   local ints2 = obj:toints()
@@ -408,8 +413,7 @@ end
 --]]
 function M.Relation:weight(obj, col_matches)
   assert(type(obj) == "table" and type(obj.row_count) == "number" and type(obj.column_count) == "number" and type(obj.bitfield) == "table", "Relation:weight: obj must be a Relation but got: "..tostring(obj))
-  if DEBUG == true then print(string.format('type(col_matches): %s\n#col_matches: %s\nself.column_count: %s', type(col_matches), #col_matches, obj.column_count)); for i,o in ipairs(col_matches) do print(i, o) end end
-  -- assert(type(col_matches) == "table" and #col_matches == obj.column_count, "Relation:weight: col_matches must be an array of same size as first relation but: "..tostring(self.column_count).." ~= "..tostring(#col_matches))
+  assert(type(col_matches) == "table" and #col_matches == self.column_count, "Relation:weight: col_matches must be an array of same size as first relation but: "..tostring(self.column_count).." ~= "..tostring(#col_matches))
   local col_used, use_count, diff
 
   -- clear image of the match in r2
@@ -508,16 +512,24 @@ end
 
 --[[
   /* Compute the distance between two relations */
+  Inputs:  self, r2 = Relations
+  Outputs: relation distance
 --]]
 function M.Relation:relmetric(r2)
+  assert(type(r2) == "table" and type(r2.column_count) == "number", "Relation:relmetric: takes a Column but got: "..tostring(r2))
   local w1, w2
-  w1 = self:min_weight(r2)
-  w2 = r2:min_weight(self)
-
-  if w1 > w2 then
-    return w1
+  if M.CHK_WT_BOTH_DIRS then
+    w1 = self:min_weight(r2)
+    w2 = r2:min_weight(self)
+    if w1 > w2 then
+      return w1
+    else
+      return w2
+    end
+  elseif self.column_count <= r2.column_count then
+    return self:min_weight(r2)
   else
-    return w2
+    return r2:min_weight(self)
   end
 end
 
