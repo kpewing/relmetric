@@ -100,14 +100,14 @@ end
 
 -- generate a string that prints vertically, most-to-least significant
 function M.Column:__tostring()
-  local whole_shorts = self.row_count // M.ROWS_PER_UNSIGNED
+  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
   local rest_bits = self.row_count % 8
-  local shorts = {self:toints()}
+  local ints = {self:toints()}
   local res = ""
   -- first the whole bytes
-  for i = 1, whole_shorts do
+  for i = 1, whole_ints do
     for j = 1, #ROW_MASK do
-      if shorts[i] & ROW_MASK[j] > 0 then
+      if ints[i] & ROW_MASK[j] > 0 then
         res = res..string.format("%s\n",'1')
       else
         res = res..string.format("%s\n",'0')
@@ -116,7 +116,7 @@ function M.Column:__tostring()
   end
   -- now the rest
   for j = (9 - rest_bits), 8 do  -- ignores if r == 0
-    if shorts[whole_shorts + 1] & ROW_MASK[j] > 0 then
+    if ints[whole_ints + 1] & ROW_MASK[j] > 0 then
       res = res..string.format("%s\n",'1')
     else
       res = res..string.format("%s\n",'0')
@@ -133,8 +133,8 @@ function M.Column:__eq(obj)
   if self.row_count ~= obj.row_count then
     res = false
   else
-    local ints1 = self:toints()
-    local ints2 = obj:toints()
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
     if #ints1 ~= #ints2 then
       res = false
     else
@@ -152,8 +152,8 @@ end
 function M.Column:__le(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__le takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__le requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  local ints1 = self:toints()
-  local ints2 = obj:toints()
+  local ints1 = {self:toints()}
+  local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:__le requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = true
   for i = 1, #ints1 do
@@ -168,8 +168,8 @@ end
 function M.Column:__lt(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__lt takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__lt requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  local ints1 = self:toints()
-  local ints2 = obj:toints()
+  local ints1 = {self:toints()}
+  local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:__lt requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = true
   for i = 1, #ints1 do
@@ -184,8 +184,8 @@ end
 function M.Column:__band(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__band takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__band requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  local ints1 = self:toints()
-  local ints2 = obj:toints()
+  local ints1 = {self:toints()}
+  local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:__band requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = {}
   for i = 1, #ints1 do
@@ -198,8 +198,8 @@ end
 function M.Column:__bor(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:__bor takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:__bor requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  local ints1 = self:toints()
-  local ints2 = obj:toints()
+  local ints1 = {self:toints()}
+  local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:__bor requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = {}
   for i = 1, #ints1 do
@@ -209,13 +209,13 @@ function M.Column:__bor(obj)
 end
 
 -- any_joint_row checks whether two Columns share a relation in any row
--- Input:  a Column
+-- Input:  obj = a Column
 -- Output: boolean whether input and self share a relation in any row
 function M.Column:any_joint_col(obj)
   assert(type(obj) == "table" and type(obj.row_count) == "number", "Column:any_joint_row takes Columns but got: "..tostring(obj))
   assert(self.row_count == obj.row_count, "Column:any_joint_row requires Columns of equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  local ints1 = self:toints()
-  local ints2 = obj:toints()
+  local ints1 = {self:toints()}
+  local ints2 = {obj:toints()}
   assert(#ints1 == #ints2, "Column:any_joint_row requires Columns of equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = false
   local i = 1
@@ -225,6 +225,41 @@ function M.Column:any_joint_col(obj)
   return res
 end
 
+--[[
+ /* Count the number of differences between two columns
+ * Input: second column to which self is to be compared
+ * Returns: difference count
+ */
+--]]
+function M.Column:column_diff(obj)
+  assert(type(obj) == "table" and type(obj.row_count) == "number" and type(obj.bits) == "table", "Column:column_diff: takes a Column but got: "..tostring(obj))
+  assert(self.row_count == obj.row_count, "Column:column_diff: row_counts must be the same but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
+  local c1, c2, diff, current_diff
+  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+  local rest_bits = self.row_count % 8
+  c1 = {self:toints()}
+  c2 = {obj:toints()}
+  diff = 0
+
+  -- unpack whole words
+  for i = 1, whole_ints do
+    current_diff = c1[i] ~ c2[i]
+    for j = 1, M.ROWS_PER_UNSIGNED do
+      diff = diff + (current_diff & 0x01)
+      current_diff = current_diff >> 1
+    end
+  end
+
+  -- collect remaining rows
+  if rest_bits > 0 then
+    current_diff = c1[#c1] ~ c2[#c2]
+    for i = 1, rest_bits do
+      diff = diff + (current_diff & 0x01)
+      current_diff = current_diff >> 1
+    end
+  end
+  return diff
+end
 
 --[[
   /* Relation creation and methods */
@@ -295,11 +330,12 @@ function M.Relation:fromints(...)
   if #input == 1 and type(input[1]) == "table" and type(input[1][1]) == "table" then
     input = input[1]
   end
-  local col1_short_count = #input[1] or error("Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
+  assert(type(input[1]) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(o))
+  local col1_int_count = #input[1] or error("Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
   local bf = {}
   for i, o in ipairs(input) do
     assert(type(o) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(o))
-    assert(#o == col1_short_count, "Relation:fromints: requires equal-length tables of integers but got: "..tostring(#o).." ~= "..tostring(col1_short_count))
+    assert(#o == col1_int_count, "Relation:fromints: requires equal-length tables of integers but got: "..tostring(#o).." ~= "..tostring(col1_int_count))
     bf[i] = M.Column:fromints(o)
   end
   return M.Relation:new({
@@ -320,7 +356,7 @@ end
 
 -- generate a string that prints out a relation
 function M.Relation:__tostring()
-  local whole_shorts = self.row_count // M.ROWS_PER_UNSIGNED
+  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
   local rest_bits = self.row_count % 8
   local cols = {}
   local res = ""
@@ -328,7 +364,7 @@ function M.Relation:__tostring()
     cols[i] = {c:toints()}
   end
   -- first the whole bytes
-  for i = 1, whole_shorts do
+  for i = 1, whole_ints do
     for j = 1, #ROW_MASK do
       for k = 1, self.column_count do
         if cols[k][i] & ROW_MASK[j] > 0 then
@@ -343,7 +379,7 @@ function M.Relation:__tostring()
   -- now the rest
   for j = (#ROW_MASK + 1 - rest_bits), #ROW_MASK do  -- ignores if r >= #ROW_Mask
     for k = 1, self.column_count do
-      if cols[k][whole_shorts + 1] & ROW_MASK[j] > 0 then
+      if cols[k][whole_ints + 1] & ROW_MASK[j] > 0 then
         res = res..string.format("%s",'1')
       else
         res = res..string.format("%s",'0')
@@ -354,40 +390,26 @@ function M.Relation:__tostring()
   return res
 end
 
---[[
- /* Count the number of differences between two columns
- * Input: second column to which self is to be compared
- * Returns: difference count
- */
---]]
-function M.Column:column_diff(obj)
-  assert(type(obj) == "table" and type(obj.row_count) == "number" and type(obj.bits) == "table", "Column:column_diff: takes a Column but got: "..tostring(obj))
-  assert(self.row_count == obj.row_count, "Column:column_diff: row_counts must be the same but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
-  local c1, c2, diff, current_diff
-  local whole_shorts = self.row_count // M.ROWS_PER_UNSIGNED
-  local rest_bits = self.row_count % 8
-  c1 = {self:toints()}
-  c2 = {obj:toints()}
-  diff = 0
-
-  -- unpack whole words
-  for i = 1, whole_shorts do
-    current_diff = c1[i] ~ c2[i]
-    for j = 1, M.ROWS_PER_UNSIGNED do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
+-- __sub one-for-one removes identical columns from self found in input
+-- Input:  obj = a Relation
+-- Output: a new Relation
+function M.Relation:__sub(obj)
+  assert(type(obj) == "table" and type(obj.row_count) == "number" and type(obj.column_count) == "number" and type(obj.bitfield) == "table", "Relation:__sub: takes a Relation but got: "..tostring(obj))
+  assert(self.row_count == obj.row_count, "Column:__sub: row_counts must be the same but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
+  local new_cols = {}
+  local res
+  for _, self_col in ipairs(self.bitfield) do
+    for _, obj_col in ipairs(obj.bitfield) do
+      if self_col == obj_col then
+        break
+      else
+        new_cols[#new_cols+1] = self_col
+      end
     end
   end
-
-  -- collect remaining rows
-  if rest_bits > 0 then
-    current_diff = c1[#c1] ~ c2[#c2]
-    for i = 1, rest_bits do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
-    end
-  end
-  return diff
+  res = M.Relation:fromcols(new_cols)
+  res.row_count = self.row_count
+  return res
 end
 
 --[[
