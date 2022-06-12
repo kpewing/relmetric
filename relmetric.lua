@@ -31,7 +31,6 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
   for i = M.ROWS_PER_UNSIGNED, 2, -1 do
     ROW_MASK[i - 1] = ROW_MASK[i] << 1
   end
-  -- PACK_FORMAT = '>J'  -- big-endian unsigned Lua integers (usually long long)
 
 --[[
   /* Column creation and methods */
@@ -53,7 +52,6 @@ function M.Column:new(obj)
     assert(type(obj) == "table", "Column:new: takes {row_count=<non-neg_int>, bits=<table_of_ints} or {} or nothing but got: "..tostring(obj))
     if #obj > 0 then
       assert(math.tointeger(obj.row_count) and math.tointeger(obj.row_count) >= 0, "Column:new: row_count must a non-negative integer but got: "..tostring(obj.row_count))
-      -- assert(type(obj.bits) == "string", "Column:new bits must be a packed string but got: "..tostring(obj.bits))
       assert(type(obj.bits) == "table", "Column:new: bits must be a table of integers or empty table but got: "..tostring(obj.bits))
       for _,o in ipairs(obj.bits) do
         assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column:new: takes integers but got: "..tostring(o))
