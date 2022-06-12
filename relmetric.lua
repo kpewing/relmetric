@@ -44,7 +44,6 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
 -- Output: Column with fields from input or default Column
 
 -- default Column
--- M.Column = {row_count = 0, bits = {}}
 M.Column = {row_count = 0} -- default is empty Relation with zero row_count
 
 function M.Column:new(obj)
@@ -248,18 +247,21 @@ end
 -- any_joint_row checks whether two Columns share a relation in any row
 -- Input:  obj = a Column
 -- Output: boolean whether input and self share a relation in any row
-function M.Column:any_joint_col(obj)
-  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:any_joint_row takes Columns but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+function M.Column:any_joint_row(obj)
   local res = false
-  local i = 1
-  -- check for true only if both #ints1, #ints2 > 0
-  if #ints2 > 0 then
-    while not res and i <= #ints1 do
-      res = (ints1[i] & ints2[i] > 0)
+  if not self:isempty() and not M.Column.isempty(obj) then
+    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:any_joint_row takes Columns but got: "..tostring(obj))
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    local i = 1
+    -- check for true only if both #ints1, #ints2 > 0
+    if #ints2 > 0 then
+      while not res and i <= #ints1 do
+        res = (ints1[i] & ints2[i] > 0)
+        i = i + 1
+      end
     end
   end
   return res
@@ -272,37 +274,43 @@ end
  */
 --]]
 function M.Column:column_diff(obj)
-  assert(type(obj) == "table" and math.tointeger(obj.row_count) and type(obj.bits) == "table", "Column:column_diff: takes a Column but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:column_diff: takes a Column but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:column_diff requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
   assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:column_diff requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local diff, current_diff, whole_ints, rest_bits
+  whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+  rest_bits = self.row_count % 8
+  diff = 0
+
+  -- fill empties with zeros
   if #ints1 == 0 then
-    diff = #obj.row_count
-  elseif #ints2 == 0 then
-    diff = #self.row_count
-  else
-    whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-    rest_bits = self.row_count % 8
-    diff = 0
-
-    -- unpack whole words
-    for i = 1, whole_ints do
-      current_diff = ints1[i] ~ ints2[i]
-      for j = 1, M.ROWS_PER_UNSIGNED do
-        diff = diff + (current_diff & 0x01)
-        current_diff = current_diff >> 1
-      end
+    for i = 1, #ints2 do
+      ints1[i] = 0
     end
+  end
+  if #ints2 == 0 then
+    for i = 1, #ints1 do
+      ints2[i] = 0
+    end
+  end
 
-    -- collect remaining rows
-    if rest_bits > 0 then
-      current_diff = ints1[#ints1] ~ ints2[#ints2]
-      for i = 1, rest_bits do
-        diff = diff + (current_diff & 0x01)
-        current_diff = current_diff >> 1
-      end
+  -- unpack whole words
+  for i = 1, whole_ints do
+    current_diff = ints1[i] ~ ints2[i]
+    for j = 1, M.ROWS_PER_UNSIGNED do
+      diff = diff + (current_diff & 0x01)
+      current_diff = current_diff >> 1
+    end
+  end
+
+  -- collect remaining rows
+  if rest_bits > 0 then
+    current_diff = ints1[#ints1] ~ ints2[#ints2]
+    for i = 1, rest_bits do
+      diff = diff + (current_diff & 0x01)
+      current_diff = current_diff >> 1
     end
   end
   return diff
