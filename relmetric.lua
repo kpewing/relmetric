@@ -544,7 +544,6 @@ function M.Relation:__sub(obj)
           end
         end
       end
-      print(string.format('rel1 - rel2 found: %s cols',#new_cols))
       res = M.Relation:fromcols(new_cols)
       res.row_count = self.row_count
     end
