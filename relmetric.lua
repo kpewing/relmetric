@@ -44,34 +44,21 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
 -- Output: Column with fields from input or default Column
 
 -- default Column
-M.Column = {row_count = 0, bits = {}}
+-- M.Column = {row_count = 0, bits = {}}
+M.Column = {row_count = 0} -- default is empty Relation with zero row_count
 
 function M.Column:new(obj)
-  local newObj
-  if obj then
-    assert(type(obj) == "table", "Column:new: takes {row_count=<non-neg_int>, bits=<table_of_ints} or {} or nothing but got: "..tostring(obj))
-    if #obj > 0 then
-      assert(math.tointeger(obj.row_count) and math.tointeger(obj.row_count) >= 0, "Column:new: row_count must a non-negative integer but got: "..tostring(obj.row_count))
-      assert(type(obj.bits) == "table", "Column:new: bits must be a table of integers or empty table but got: "..tostring(obj.bits))
-      for _,o in ipairs(obj.bits) do
-        assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column:new: takes integers but got: "..tostring(o))
-      end
-      newObj = {
-        row_count = obj.row_count,
-        bits = obj.bits
-      }
-    else  -- for convience let :new({}) = :new()
-      newObj = {
-        row_count = obj.row_count,
-        bits = obj.bits
-      }
-    end
+  local newObj = {}
+  if M.Column.isempty(obj) then
+    newObj = {row_count = M.Column.row_count}
   else
-    newObj = {
-      row_count = M.Column.row_count,
-      -- bits = string.pack(PACK_FORMAT,0x0)
-      bits = M.Column.bits
-    }
+    assert(type(obj) == "table", "Column:new: takes {row_count,...<ints>...} or {} or nothing but got: "..tostring(obj))
+    assert(math.tointeger(obj.row_count) >= 0, "Column:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
+    newObj.row_count = obj.row_count
+    for i,o in ipairs(obj) do
+      assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column:new: takes integers but got: "..tostring(o))
+      newObj[i] = o
+    end
   end
   self.__index = self
   return setmetatable(newObj, self)
@@ -80,22 +67,18 @@ end
 -- Column.isempty tests whether an object is an empty Column
 function M.Column.isempty(obj)
   local res = false
-  -- nil is empty
   if type(obj) == "nil" then
-    res = true
+    res = true   -- nil is empty
   elseif type(obj) == "table" then
-    res = true
-    if obj.bits then
-      -- table with bits is empty only if bits is empty
-      for k,_ in pairs(obj.bits) do
-        res = false
-        break
-      end
+    res = true   -- table with at most a row_count key is empty
+    if #obj > 0 then
+      res = false
     else
-      -- table without any keys--{}--is empty
       for k,_ in pairs(obj) do
-        res = false
-        break
+        if k ~= "row_count" then
+          res = false
+          break
+        end
       end
     end
   end
@@ -107,30 +90,17 @@ end
 -- Output:  Column
 function M.Column:fromints(...)
   local input = {...}
+  -- handle ints enclosed in a table
   if #input == 1 and type(input[1]) == "table" then
     input = input[1]
   end
-
-  for _,o in ipairs(input) do
-    assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column.fromints: takes integers or (maybe empty) table of them but got: "..tostring(o))
-  end
-
-  return M.Column:new({
-    row_count = M.ROWS_PER_UNSIGNED * #input,
-    -- bits = string.pack(string.rep(PACK_FORMAT, #input),...)
-    bits = input
-  })
+  input.row_count = M.ROWS_PER_UNSIGNED * #input
+  return M.Column:new(input)
 end
 
 -- toints converts a Column into integers (2 bytes)
 function M.Column:toints()
-  -- local n = self.row_count // M.ROWS_PER_UNSIGNED
-  -- if self.row_count % 8 > 0 then n = n + 1 end
-  -- local res= {string.unpack(string.rep(PACK_FORMAT, n), self.bits)}
-  -- -- remove and ignore last element from string.unpack
-  -- table.remove(res, #res)
-  -- return table.unpack(res)
-  return table.unpack(self.bits)
+  return table.unpack(self)
 end
 
 -- generate a string that prints vertically, most-to-least significant
