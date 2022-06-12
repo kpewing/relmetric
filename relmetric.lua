@@ -165,7 +165,7 @@ end
 
 -- equality of Columns
 function M.Column:__eq(obj)
-  assert(type(obj) == "table" and math.tointeger.row_count, "Column:__eq takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__eq takes Columns but got: "..tostring(obj))
   local res = true
   if self.row_count ~= obj.row_count then
     res = false
@@ -187,7 +187,7 @@ end
 
 -- less than or equal for Columns
 function M.Column:__le(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:__le takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__le takes Columns but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
@@ -203,7 +203,7 @@ end
 
 -- less than for Columns
 function M.Column:__lt(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:__lt takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__lt takes Columns but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
@@ -219,7 +219,7 @@ end
 
 -- __band for Columns
 function M.Column:__band(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:__band takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__band takes Columns but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__band requires non-empty Columns to have equal or 0 row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
@@ -248,7 +248,7 @@ end
 
 -- __bor for Columns
 function M.Column:__bor(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:__bor takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__bor takes Columns but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__bor requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
@@ -279,7 +279,7 @@ end
 -- Input:  obj = a Column
 -- Output: boolean whether input and self share a relation in any row
 function M.Column:any_joint_col(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:any_joint_row takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:any_joint_row takes Columns but got: "..tostring(obj))
   local ints1 = {self:toints()}
   local ints2 = {obj:toints()}
   assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
@@ -453,7 +453,7 @@ function M.Relation:fromints(...)
     input = input[1]
   end
   if #input > 0 then
-    assert(type(input[1]) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(o))
+    assert(type(input[1]) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
     local col1_int_count = #input[1] or error("Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
     local bf = {}
     for i, o in ipairs(input) do
