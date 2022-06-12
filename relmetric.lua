@@ -137,29 +137,31 @@ end
 
 -- generate a string that prints vertically, most-to-least significant
 function M.Column:__tostring()
-  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-  local rest_bits = self.row_count % 8
-  local ints = {self:toints()}
   local res = ""
-  -- first the whole bytes
-  for i = 1, whole_ints do
-    for j = 1, #ROW_MASK do
-      if ints[i] & ROW_MASK[j] > 0 then
+  if not self:isempty() then
+    local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+    local rest_bits = self.row_count % 8
+    local ints = {self:toints()}
+    -- first the whole bytes
+    for i = 1, whole_ints do
+      for j = 1, #ROW_MASK do
+        if ints[i] & ROW_MASK[j] > 0 then
+          res = res..string.format("%s\n",'1')
+        else
+          res = res..string.format("%s\n",'0')
+        end
+      end
+    end
+    -- now the rest
+    for j = (9 - rest_bits), 8 do  -- ignores if r == 0
+      if ints[whole_ints + 1] & ROW_MASK[j] > 0 then
         res = res..string.format("%s\n",'1')
       else
         res = res..string.format("%s\n",'0')
       end
     end
+    res = res..string.format("\n")
   end
-  -- now the rest
-  for j = (9 - rest_bits), 8 do  -- ignores if r == 0
-    if ints[whole_ints + 1] & ROW_MASK[j] > 0 then
-      res = res..string.format("%s\n",'1')
-    else
-      res = res..string.format("%s\n",'0')
-    end
-  end
-  res = res..string.format("\n")
   return res
 end
 
@@ -482,18 +484,31 @@ end
 
 -- generate a string that prints out a relation
 function M.Relation:__tostring()
-  local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-  local rest_bits = self.row_count % 8
-  local cols = {}
   local res = ""
-  for i, c in ipairs(self.bitfield) do
-    cols[i] = {c:toints()}
-  end
-  -- first the whole bytes
-  for i = 1, whole_ints do
-    for j = 1, #ROW_MASK do
+  if not self:isempty() then
+    local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+    local rest_bits = self.row_count % 8
+    local cols = {}
+    for i, c in ipairs(self.bitfield) do
+      cols[i] = {c:toints()}
+    end
+    -- first the whole bytes
+    for i = 1, whole_ints do
+      for j = 1, #ROW_MASK do
+        for k = 1, self.column_count do
+          if cols[k][i] & ROW_MASK[j] > 0 then
+            res = res..string.format("%s",'1')
+          else
+            res = res..string.format("%s",'0')
+          end
+        end
+        res = res..string.format("\n")
+      end
+    end
+    -- now the rest
+    for j = (#ROW_MASK + 1 - rest_bits), #ROW_MASK do  -- ignores if r >= #ROW_Mask
       for k = 1, self.column_count do
-        if cols[k][i] & ROW_MASK[j] > 0 then
+        if cols[k][whole_ints + 1] & ROW_MASK[j] > 0 then
           res = res..string.format("%s",'1')
         else
           res = res..string.format("%s",'0')
@@ -501,17 +516,6 @@ function M.Relation:__tostring()
       end
       res = res..string.format("\n")
     end
-  end
-  -- now the rest
-  for j = (#ROW_MASK + 1 - rest_bits), #ROW_MASK do  -- ignores if r >= #ROW_Mask
-    for k = 1, self.column_count do
-      if cols[k][whole_ints + 1] & ROW_MASK[j] > 0 then
-        res = res..string.format("%s",'1')
-      else
-        res = res..string.format("%s",'0')
-      end
-    end
-    res = res..string.format("\n")
   end
   return res
 end
