@@ -355,7 +355,7 @@ function M.Relation:new(obj)
   local newObj = {}
   if obj then
     assert(type(obj) == "table", "Relation:new: takes {row_count, column_count, bitfield} or {} or nothing but got: "..tostring(obj))
-    if #obj > 0 then
+    if #obj.bitfield > 0 then
       assert(math.tointeger(obj.row_count) and obj.row_count >= 0, "Relation:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
       assert(math.tointeger(obj.column_count) and obj.column_count >= 0, "Relation:new: column_count must be a non-negative integer but got: "..tostring(obj[1]))
       assert(type(obj.bitfield) == "table", "Relation:new: bitfield must be a (maybe empty) table of Columns but got: "..tostring(obj))
@@ -529,10 +529,11 @@ function M.Relation:__sub(obj)
     elseif #obj.bitfield == 0 then
       res = M.Relation:new(self)
     else
-      local new_cols
-      for _, self_col in ipairs(self.bitfield) do
-        for _, obj_col in ipairs(obj.bitfield) do
-          if self_col == obj_col then
+      local new_cols, used_cols = {}, {}
+      for i, self_col in ipairs(self.bitfield) do
+        for j, obj_col in ipairs(obj.bitfield) do
+          if not used_cols[j] and self_col == obj_col then
+            used_cols[j] = true
             break
           else
             new_cols[#new_cols+1] = self_col
