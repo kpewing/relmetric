@@ -165,7 +165,7 @@ end
 
 -- equality of Columns
 function M.Column:__eq(obj)
-  assert(type(obj) == "table" and type(math.tointeger.row_count) ==, "Column:__eq takes Columns but got: "..tostring(obj))
+  assert(type(obj) == "table" and math.tointeger.row_count, "Column:__eq takes Columns but got: "..tostring(obj))
   local res = true
   if self.row_count ~= obj.row_count then
     res = false
