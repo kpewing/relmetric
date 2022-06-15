@@ -36,57 +36,75 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
   /* Column creation and methods */
 --]]
 
--- new creates a new Column with fields row_count, bits
--- Input: nil or table of fields row_count and bits
---        row_count is the count of rows / bits in the column
---        bits is a table of integers in big-endian order
---        whose bits each represent one element of the relation
--- Output: Column with fields from input or default Column
+-- Default Column is empty with row_count == 0
+M.Column = {row_count = 0}
 
--- default Column
-M.Column = {row_count = 0} -- default is empty Relation with zero row_count
+-- new creates a new Column with fields row_count, bits
+-- Input: nil or table = {row_count, ...<integer>...}
+--        row_count = non-negative count of rows (bits) in the Column
+--        <integers> = zero or more integers in big-endian order
+--        each bit of which represents one element of the relation
+-- Output: Column
 
 function M.Column:new(obj)
-  local newObj = {}
+  local newObj = {row_count = M.Column.row_count}
   if M.Column.isempty(obj) then
-    newObj = {row_count = M.Column.row_count}
+    if obj then
+      newObj = {row_count = obj.row_count or M.Column.row_count}
+    end
+    local int_count = newObj.row_count // M.ROWS_PER_UNSIGNED
+    if newObj.row_count % M.ROWS_PER_UNSIGNED > 0 then
+      int_count = int_count + 1
+    end
+    for i = 1, int_count do
+      newObj[i] = 0
+    end
   else
-    assert(type(obj) == "table", "Column:new: takes {row_count,...<ints>...} or {} or nothing but got: "..tostring(obj))
-    assert(math.tointeger(obj.row_count) >= 0, "Column:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
+    assert(type(obj) == "table", "Column:new: takes {row_count,...<integer>...} or {} or nothing but got: "..tostring(obj))
+    assert(math.tointeger(obj.row_count) and obj.row_count >= 0, "Column:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
     newObj.row_count = obj.row_count
     for i,o in ipairs(obj) do
-      assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, "Column:new: takes integers but got: "..tostring(o))
+      assert(math.tointeger(o) and math.tointeger(o) <= M.MAX_INT, string.format("Column:new: takes integers < %s but got: %s", M.MAX_INT, tostring(o)))
       newObj[i] = o
     end
+    local bit_count = M.ROWS_PER_UNSIGNED * #newObj
+    assert(newObj.row_count <= bit_count, "Column:new: too few bits for row_count: "..tostring(bit_count).." > "..tostring(newObj.row_count))
   end
   self.__index = self
   return setmetatable(newObj, self)
 end
 
 -- Column.isempty tests whether an object is an empty Column
+-- NOTE:  Empty Columns are a class: for them row_count is arbitrary.
+-- Also, nil, {}, and list of 0s are also an empty Column.
 function M.Column.isempty(obj)
-  local res = false
+  local res
   if type(obj) == "nil" then
-    res = true   -- nil is empty
+    -- nil is empty
+    res = true
   elseif type(obj) == "table" then
-    res = true   -- table with at most a row_count key is empty
-    if #obj > 0 then
-      res = false
-    else
-      for k,_ in pairs(obj) do
-        if k ~= "row_count" then
-          res = false
-          break
-        end
+    -- table with a row_count >= 0 and at most 0's
+    res = true
+    for k,v in pairs(obj) do
+      if k == "row_count" and v >= 0 then
+        res = true
+      elseif math.tointeger(k) and v == 0  then
+        res = true
+      else
+        res = false
+        break
       end
     end
+  else
+    -- must be a table
+    res = false
   end
   return res
 end
 
 -- fromints creates a Column from integers (2 bytes), inferring the row_count
 -- Input (vararg):  table of integers or unpacked table thereof
--- Output:  Column
+-- Output:  Column of the input integers with inferred row_count
 function M.Column:fromints(...)
   local input = {...}
   -- handle ints enclosed in a table
@@ -99,15 +117,27 @@ end
 
 -- toints converts a Column into integers (2 bytes)
 function M.Column:toints()
-  return table.unpack(self)
+  local res = {}
+  if self:isempty() and self.row_count > 0 then
+    local int_count = self.row_count // M.ROWS_PER_UNSIGNED
+    if self.row_count % M.ROWS_PER_UNSIGNED > 0 then
+      int_count = int_count + 1
+    end
+    for i = 1, int_count do
+      res[i] = 0
+    end
+    return table.unpack(res)
+  else
+    return table.unpack(self)
+  end
 end
 
 -- generate a string that prints vertically, most-to-least significant
 function M.Column:__tostring()
   local res = ""
-  if not self:isempty() then
+  -- if not self:isempty() then
     local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-    local rest_bits = self.row_count % 8
+    local rest_bits = self.row_count % M.ROWS_PER_UNSIGNED
     local ints = {self:toints()}
     -- first the whole bytes
     for i = 1, whole_ints do
@@ -119,34 +149,49 @@ function M.Column:__tostring()
         end
       end
     end
-    -- now the rest
-    for j = (9 - rest_bits), 8 do  -- ignores if r == 0
+    -- now the rest, ignoring if rest_bits == 0
+    for j = (M.ROWS_PER_UNSIGNED - rest_bits + 1), M.ROWS_PER_UNSIGNED do
       if ints[whole_ints + 1] & ROW_MASK[j] > 0 then
         res = res..string.format("%s\n",'1')
       else
         res = res..string.format("%s\n",'0')
       end
     end
-    res = res..string.format("\n")
-  end
+    -- res = res..string.format("\n")
+  -- elseif self.row_count > 0 then
+  --   local int_count = self.row_count // M.ROWS_PER_UNSIGNED
+  --   if self.row_count % M.ROWS_PER_UNSIGNED > 0 then
+  --     int_count = int_count + 1
+  --   end
+  --   res = string.rep("0\n", int_count)
+  -- end
   return res
 end
 
 -- equality of Columns
 function M.Column:__eq(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__eq takes Columns but got: "..tostring(obj))
-  local res = true
-  if self.row_count ~= obj.row_count then
+  local res
+  local self_empty = self:isempty()
+  local obj_empty = M.Column.isempty()
+
+  if self_empty and obj_empty then
+    res = true
+  elseif self_empty or obj_empty then
     res = false
   else
-    local ints1 = {self:toints()}
-    local ints2 = {obj:toints()}
-    if #ints1 ~= #ints2 then
+    if self.row_count ~= obj.row_count then
       res = false
     else
-      for i = 1, #ints1 do
-        if ints1[i] ~= ints2[i] then
-          res = false
+      local ints1 = {self:toints()}
+      local ints2 = {obj:toints()}
+      if #ints1 ~= #ints2 then
+        res = false
+      else
+        for i = 1, #ints1 do
+          if ints1[i] ~= ints2[i] then
+            res = false
+          end
         end
       end
     end
@@ -157,14 +202,21 @@ end
 -- less than or equal for Columns
 function M.Column:__le(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__le takes Columns but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-  local res = true
-  for i = 1, #ints1 do  -- empty <= everything
-    if ints1[i] > ints2[i] then
-      res = false
+  local res
+
+  if self:isempty() then
+    res = true
+  elseif M.Column.isempty() then
+    res = false
+  else
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    for i = 1, #ints1 do  -- empty <= everything
+      if ints1[i] > ints2[i] then
+        res = false
+      end
     end
   end
   return res
@@ -173,14 +225,21 @@ end
 -- less than for Columns
 function M.Column:__lt(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__lt takes Columns but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
   local res = true
-  for i = 1, #ints1 do  -- empty < everything other than empty
-    if ints1[i] >= ints2[i] then
-      res = false
+
+  if self:isempty() then
+    res = false
+  elseif M.Column.isempty(obj) then
+    res = true
+  else
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    for i = 1, #ints1 do  -- empty < everything other than empty
+      if ints1[i] >= ints2[i] then
+        res = false
+      end
     end
   end
   return res
@@ -189,72 +248,88 @@ end
 -- __band for Columns
 function M.Column:__band(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__band takes Columns but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__band requires non-empty Columns to have equal or 0 row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__band requires non-empty Columns to have equal or 0 length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-  local new_ints, new_row_count = {}, 0
-  if #ints1 == 0 then
-    for i = 1, #ints2 do
-      new_ints[i] = 0x0
-      new_row_count = obj.row_count
-    end
-  elseif #ints2 == 0 then
-    for i = 1, #ints1 do
-      new_ints[i] = 0x0
-      new_row_count = self.row_count
-    end
+  local res = true
+
+  if M.Column.isempty() then
+    res = M.Column:new(self)
+  elseif self:isempty() then
+    res = M.Column:new(obj)
   else
-    for i = 1, #ints1 do
-      new_ints[i] = ints1[i] & ints2[i]
-      new_row_count = self.row_count
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__band requires non-empty Columns to have equal or 0 row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__band requires non-empty Columns to have equal or 0 length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    local new_ints, new_row_count = {}, 0
+    if #ints1 == 0 then
+      for i = 1, #ints2 do
+        new_ints[i] = 0x0
+        new_row_count = obj.row_count
+      end
+    elseif #ints2 == 0 then
+      for i = 1, #ints1 do
+        new_ints[i] = 0x0
+        new_row_count = self.row_count
+      end
+    else
+      for i = 1, #ints1 do
+        new_ints[i] = ints1[i] & ints2[i]
+        new_row_count = self.row_count
+      end
     end
+    res = M.Column:fromints(new_ints)
+    res.row_count = new_row_count
   end
-  local res = M.Column:fromints(new_ints)
-  res.row_count = new_row_count
   return res
 end
 
 -- __bor for Columns
 function M.Column:__bor(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__bor takes Columns but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__bor requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__bor requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-  local new_ints, new_row_count = {}, 0
-  if #ints1 == 0 then
-    for i = 1, #ints2 do
-      new_ints[i] = ints2[i]
-      new_row_count = obj.row_count
-    end
-  elseif #ints2 == 0 then
-    for i = 1, #ints1 do
-      new_ints[i] = ints1[i]
-      new_row_count = self.row_count
-    end
-  else
-    for i = 1, #ints1 do
-      new_ints[i] = ints1[i] | ints2[i]
-      new_row_count = self.row_count
-    end
-  end
-  local res = M.Column:fromints(new_ints)
-  res.row_count = new_row_count
-  return res
-end
+  local res
 
--- any_joint_row checks whether two Columns share a relation in any row
--- Input:  obj = a Column
--- Output: boolean whether input and self share a relation in any row
-function M.Column:any_joint_row(obj)
-  local res = false
-  if not self:isempty() and not M.Column.isempty(obj) then
-    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:any_joint_row takes Columns but got: "..tostring(obj))
+  if M.Column.isempty() then
+    res = M.Column:new(self)
+  elseif self:isempty() then
+    res = M.Column:new(obj)
+  else
     local ints1 = {self:toints()}
     local ints2 = {obj:toints()}
-    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:any_joint_row requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__bor requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__bor requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    local new_ints, new_row_count = {}, 0
+    if #ints1 == 0 then
+      for i = 1, #ints2 do
+        new_ints[i] = ints2[i]
+        new_row_count = obj.row_count
+      end
+    elseif #ints2 == 0 then
+      for i = 1, #ints1 do
+        new_ints[i] = ints1[i]
+        new_row_count = self.row_count
+      end
+    else
+      for i = 1, #ints1 do
+        new_ints[i] = ints1[i] | ints2[i]
+        new_row_count = self.row_count
+      end
+    end
+    res = M.Column:fromints(new_ints)
+    res.row_count = new_row_count
+    return res
+  end
+end
+
+-- share_rel checks whether two Columns share a relation in any row
+-- Input:  obj = a Column
+-- Output: boolean whether input and self share a relation in any row
+function M.Column:share_rel(obj)
+  local res = false
+  if not self:isempty() and not M.Column.isempty(obj) then
+    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:share_rel takes Columns but got: "..tostring(obj))
+    local ints1 = {self:toints()}
+    local ints2 = {obj:toints()}
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:share_rel requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:share_rel requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
     local i = 1
     -- check for true only if both #ints1, #ints2 > 0
     if #ints2 > 0 then
@@ -271,46 +346,53 @@ end
  /* Count the number of differences between two columns
  * Input: second column to which self is to be compared
  * Returns: difference count
+   NOTE: empty Column is category initial, i.e., all 0,
+   so column_diff with an empty Column counts 1s in other.
  */
 --]]
 function M.Column:column_diff(obj)
-  assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:column_diff: takes a Column but got: "..tostring(obj))
-  local ints1 = {self:toints()}
-  local ints2 = {obj:toints()}
-  assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:column_diff requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-  assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:column_diff requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-  local diff, current_diff, whole_ints, rest_bits
-  whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
-  rest_bits = self.row_count % 8
-  diff = 0
+  local diff, ints1, ints2 = 0, {}, {}
+  local self_empty = self:isempty()
+  local obj_empty = M.Column.isempty(obj)
 
-  -- fill empties with zeros
-  if #ints1 == 0 then
+  if self_empty then
     for i = 1, #ints2 do
       ints1[i] = 0
     end
-  end
-  if #ints2 == 0 then
+    ints2 = {obj:toints()}
+  elseif obj_empty then
+    ints1 = {self:toints()}
     for i = 1, #ints1 do
       ints2[i] = 0
     end
+  else
+    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:column_diff: takes a Column but got: "..tostring(obj))
+    assert(self.row_count == obj.row_count, "Column:column_diff requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2, "Column:column_diff requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    ints1 = {self:toints()}
+    ints2 = {obj:toints()}
   end
+  if #ints1 > 0 then
+    local current_diff, whole_ints, rest_bits
+    whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
+    rest_bits = self.row_count % 8
 
-  -- unpack whole words
-  for i = 1, whole_ints do
-    current_diff = ints1[i] ~ ints2[i]
-    for j = 1, M.ROWS_PER_UNSIGNED do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
+    -- unpack whole words
+    for i = 1, whole_ints do
+      current_diff = ints1[i] ~ ints2[i]
+      for j = 1, M.ROWS_PER_UNSIGNED do
+        diff = diff + (current_diff & 0x01)
+        current_diff = current_diff >> 1
+      end
     end
-  end
 
-  -- collect remaining rows
-  if rest_bits > 0 then
-    current_diff = ints1[#ints1] ~ ints2[#ints2]
-    for i = 1, rest_bits do
-      diff = diff + (current_diff & 0x01)
-      current_diff = current_diff >> 1
+    -- collect remaining rows
+    if rest_bits > 0 then
+      current_diff = ints1[#ints1] ~ ints2[#ints2]
+      for i = 1, rest_bits do
+        diff = diff + (current_diff & 0x01)
+        current_diff = current_diff >> 1
+      end
     end
   end
   return diff
@@ -320,106 +402,103 @@ end
   /* Relation creation and methods */
 --]]
 
--- default Relation
-M.Relation = {row_count = 0, column_count = 0, bitfield = {}}
+-- Default Relation is empty with row_count == 0
+M.Relation = {row_count = 0}
 
--- new creates a new Relation with fields row_count, column_count, bitfield
--- Input: nil or table of fields row_count, column_count, bitfield
---        row_count is the (positive integer) row_count of all Columns in bitfield
---        column_count is a positive integer
---        bitfield is a table of Columns
--- Output: Column with fields from Input or default Column
+-- new creates a new Relation with field row_count and Columns
+-- Input: nil or table  = {row_count, ...<Columns>...}
+--        row_count = non-negative count of rows (bits) in all Columns
+--        <Columns> = zero or more Columns
+-- Output: Relation
+
 function M.Relation:new(obj)
-  local newObj = {}
-  if obj then
-    assert(type(obj) == "table", "Relation:new: takes {row_count, column_count, bitfield} or {} or nothing but got: "..tostring(obj))
-    if #obj.bitfield > 0 then
-      assert(math.tointeger(obj.row_count) and obj.row_count >= 0, "Relation:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
-      assert(math.tointeger(obj.column_count) and obj.column_count >= 0, "Relation:new: column_count must be a non-negative integer but got: "..tostring(obj[1]))
-      assert(type(obj.bitfield) == "table", "Relation:new: bitfield must be a (maybe empty) table of Columns but got: "..tostring(obj))
-      for i = 1, #obj.bitfield do
-        -- assert(type(obj.bitfield[i]) == "table" and obj.bitfield[i].row_count and obj.bitfield[i].bits, "Relation:new bifields must be a table of columns but got element "..tostring(i)..": "..tostring(obj.bitfield[i]))
-        M.Column:new(obj.bitfield[i]) -- just to check validity
-      end
-      newObj = {
-        row_count = obj.row_count,
-        column_count = obj.column_count,
-        bitfield = obj.bitfield
-      }
-    else  -- for convience let :new({}) = :new()
-      newObj = {
-        row_count = M.Relation.row_count,
-        column_count = M.Relation.column_count,
-        bitfield = M.Relation.bitfield
-      }
+  local newObj = {row_count = M.Relation.row_count}
+  if M.Relation.isempty(obj) then
+    if obj then
+      newObj = {row_count = obj.row_count or M.Relation.row_count}
+    end
+    if newObj.row_count > 0 then
+      newObj[1] = M.Column:new({row_count = newObj.row_count})
     end
   else
-    newObj = {
-      row_count = M.Relation.row_count,
-      column_count = M.Relation.column_count,
-      bitfield = M.Relation.bitfield
-    }
+    assert(type(obj) == "table", "Relation:new: takes {row_count,...<Column>...} or {} or nothing but got: "..tostring(obj))
+    assert(math.tointeger(obj.row_count) and obj.row_count >= 0, "Relation:new: row_count must be a non-negative integer but got: "..tostring(obj.row_count))
+    local col_int_count, empty_cols, bit_count = nil, {}, nil
+
+    newObj.row_count = obj.row_count
+    for i,o in ipairs(obj) do
+      assert(type(o) == "table", "Relation:new: takes Columns but got: "..tostring(o))
+      if M.Column.isempty(o) then
+        empty_cols[#empty_cols+1] = i
+      else
+        if not col_int_count then
+          col_int_count = #o
+          bit_count = M.ROWS_PER_UNSIGNED * col_int_count
+          assert(newObj.row_count <= bit_count, "Relation:new: too few bits for row_count: "..tostring(bit_count).." > "..tostring(newObj.row_count))
+        else
+          assert(o.row_count == newObj.row_count, "Relation:new: all non-empty Columns must have same row_count but: "..tostring(o.row_count).." ~= "..tostring(newObj.row_count))
+          assert(#o == col_int_count, "Relation:new: all non-empty Columns must have the same bit length but: "..tostring(#o * M.ROWS_PER_UNSIGNED).." ~= "..tostring(col_int_count * M.ROWS_PER_UNSIGNED))
+        end
+      end
+      newObj[i] = M.Column:new(o)
+    end
+    for _, col in ipairs(empty_cols) do
+      newObj[col] = M.Column:new({row_count = newObj.row_count})
+    end
   end
   self.__index = self
   return setmetatable(newObj, self)
 end
 
--- isempty tests whether an object is an empty Relation
+-- Relation.isempty tests whether an object is an empty Relation
+-- NOTE:  Empty Relations are a class: for them row_count is arbitrary.
+-- Also, nil, {}, and a list of empty Columns are also an empty Relation.
 function M.Relation.isempty(obj)
-  local res = false
-  -- nil is empty
+  local res
   if type(obj) == "nil" then
+    -- nil is empty
     res = true
   elseif type(obj) == "table" then
+    -- table with a row_count key and empty columns
     res = true
-    if obj.bitfield then
-      -- table with bitfield is empty...
-      -- ...only if any contents are empty Columns
-      for _,c in ipairs(obj.bitfield) do
-        if not M.Column.isempty(c) then
-          res = false
-          break
-        end
-      end
-    else
-      -- table without any keys--{}--is empty
-      for k,_ in pairs(obj) do
+    for k,v in pairs(obj) do
+      if k == "row_count" and v >= 0 then
+        res = true
+      elseif math.tointeger(k) and M.Column.isempty(v) then
+        res = true
+      else
         res = false
         break
       end
     end
+  else
+    -- must be a table
+    res = false
   end
   return res
 end
 
--- fromcols creates a relation from Columns, inferring the row_count, column_count
--- Inputs (vararg): table of Columns or unpacked table thereof
--- Output: Relation of the input Columns with row_count = #col1_row_count
+-- fromcols creates a relation from Columns, inferring the row_count
+-- Inputs (vararg) = table of Columns or unpacked table thereof
+-- Output: Relation of the input Columns with row_count == #col1_row_count
 function M.Relation:fromcols(...)
   local input = {...}
-  if #input == 1 and type(input[1]) == "table" and not input[1].bits then
+  -- handle cols enclosed in a table
+  if #input == 1 and type(input[1]) == "table" and not input[1].row_count then
     input = input[1]
   end
-  if #input > 0 then
-    assert(type(input[1]) == "table" and math.tointeger(input[1].row_count), "Relation:fromcols takes Columns or a (maybe empty) list of them but got: "..tostring(input[1]))
-    local col1_row_count = input[1].row_count
-    for _, o in ipairs(input) do
-      assert(type(o) == "table" and o.row_count and o.bits, "Relation:fromcols takes Columns or a (maybe empty) list of them but got: "..tostring(o))
-      assert(o.row_count == col1_row_count, "Relation:fromcols requires same row_count for all input Columns but: "..tostring(o.row_count).." ~= "..tostring(col1_row_count))
-    end
-    return M.Relation:new({
-      row_count = col1_row_count,
-      column_count = #input,
-      bitfield = input
-    })
+  if M.Relation.isempty(input) then
+    input.row_count = M.Relation.row_count
   else
-    return M.Relation:new()  -- for convience let :fromcols({}) = :new()
+    assert(type(input[1]) == "table" and math.tointeger(input[1].row_count), "Relation:fromcols takes Columns or a (maybe empty) list of them but got: "..tostring(input[1]))
+    input.row_count = input[1].row_count
   end
+  return M.Relation:new(input)  -- for convience fromcols({}) == new()
 end
 
 -- tocols returns the Columns of a Relation
 function M.Relation:tocols()
-  return table.unpack(self.bitfield)
+  return table.unpack(self)
 end
 
 -- fromints creates a relation from tables of integers representing columns
@@ -427,32 +506,41 @@ end
 -- Output: Relation of the input Columns with row_count inferred
 function M.Relation:fromints(...)
   local input = {...}
+  local new_rel = {}
+  -- handle ints enclosed in a table
   if #input == 1 and type(input[1]) == "table" and type(input[1][1]) == "table" then
     input = input[1]
   end
-  if #input > 0 then
+  if M.Relation.isempty(input) then
+    new_rel.row_count = M.Relation.row_count
+  else
     assert(type(input[1]) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
-    local col1_int_count = #input[1] or error("Relation:fromints: takes tables of integers but got: "..tostring(input[1]))
-    local bf = {}
+    local col_int_count, empty_cols = nil, {}
     for i, o in ipairs(input) do
       assert(type(o) == "table", "Relation:fromints: takes tables of integers but got: "..tostring(o))
-      assert(#o == col1_int_count, "Relation:fromints: requires equal-length tables of integers but got: "..tostring(#o).." ~= "..tostring(col1_int_count))
-      bf[i] = M.Column:fromints(o)
+      if M.Column.isempty(o) then
+        empty_cols[#empty_cols+1] = i
+      else
+        if not col_int_count then
+          col_int_count = #o
+        else
+          assert(#o == col_int_count, "Relation:fromints: all non-empty Columns must have the same bit length but got: "..tostring(#o * M.ROWS_PER_UNSIGNED).." ~= "..tostring(col_int_count * M.ROWS_PER_UNSIGNED))
+        end
+      end
+      new_rel[i] = M.Column:fromints(o)
     end
-    return M.Relation:new({
-      row_count = bf[1].row_count,
-      column_count = #bf,
-      bitfield = bf
-    })
-  else
-    return M.Relation:new() -- for convience let :fromints({}) = :new()
+    new_rel.row_count = col_int_count * M.ROWS_PER_UNSIGNED
+    for _, col in ipairs(empty_cols) do
+      new_rel[col] = M.Column:new({row_count = new_rel.row_count})
+    end
   end
+  return M.Relation:new(new_rel)
 end
 
 -- toints returns the tables of integers representing columns
 function M.Relation:toints()
   local res = {}
-  for i, c in ipairs(self.bitfield) do
+  for i, c in ipairs(self) do
     res[i] = {c:toints()}
   end
   return table.unpack(res)
@@ -464,14 +552,11 @@ function M.Relation:__tostring()
   if not self:isempty() then
     local whole_ints = self.row_count // M.ROWS_PER_UNSIGNED
     local rest_bits = self.row_count % 8
-    local cols = {}
-    for i, c in ipairs(self.bitfield) do
-      cols[i] = {c:toints()}
-    end
+    local cols = {self:toints()}
     -- first the whole bytes
     for i = 1, whole_ints do
       for j = 1, #ROW_MASK do
-        for k = 1, self.column_count do
+        for k = 1, #self do
           if cols[k][i] & ROW_MASK[j] > 0 then
             res = res..string.format("%s",'1')
           else
@@ -483,7 +568,7 @@ function M.Relation:__tostring()
     end
     -- now the rest
     for j = (#ROW_MASK + 1 - rest_bits), #ROW_MASK do  -- ignores if r >= #ROW_Mask
-      for k = 1, self.column_count do
+      for k = 1, #self do
         if cols[k][whole_ints + 1] & ROW_MASK[j] > 0 then
           res = res..string.format("%s",'1')
         else
@@ -501,32 +586,25 @@ end
 -- Output: self - obj = a new Relation
 function M.Relation:__sub(obj)
   assert(type(obj) == "table", "Relation:__sub: takes a Relation but got: "..tostring(obj))
-  local res
-  if type(obj.bitfield) == "table" then
-    assert(self.row_count == obj.row_count or #self.bitfield == 0 or #obj.bitfield == 0, "Relation:__sub: requires non-empty Relations to have equal row_counts but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
-    if #self.bitfield == 0 then
-      res = M.Relation:new()
-    elseif #obj.bitfield == 0 then
-      res = M.Relation:new(self)
-    else
-      local new_cols, used_cols = {}, {}
-      for i, self_col in ipairs(self.bitfield) do
-        for j, obj_col in ipairs(obj.bitfield) do
-          if not used_cols[j] and self_col == obj_col then
-            used_cols[j] = true
-            break
-          else
-            new_cols[#new_cols+1] = self_col
-          end
+  local new_rel = {}
+  if M.Relation.isempty(obj) then
+    new_rel = self
+  elseif not self:isempty() then
+    assert(self.row_count == obj.row_count, "Relation:__sub: requires non-empty Relations to have equal row_counts but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
+    new_rel.row_count = self.row_count
+    local used_cols = {}
+    for _, self_col in ipairs(self) do
+      for j, obj_col in ipairs(obj) do
+        if not used_cols[j] and self_col == obj_col then
+          used_cols[j] = true
+          break
+        else
+          new_rel[#new_rel+1] = self_col
         end
       end
-      res = M.Relation:fromcols(new_cols)
-      res.row_count = self.row_count
     end
-  else  -- for convenience let :__sub({}) = :__sub(M.Relation:new())
-    res = M.Relation:new(self)
   end
-  return res
+  return M.Relation:new(new_rel)
 end
 
 --[[
@@ -536,60 +614,86 @@ end
  * Input: self, obj = relations to compare
  *        col1, col2 = column indices to match
  * Returns: nonnegative number of differences between columns
+   NOTE: Empty Column is category initial, i.e., all 0,
+   so match_column with an empty Column counts 1s in other.
  */
 ]]
 function M.Relation:match_columns(obj, col1, col2)
   assert(type(obj) == "table", "Relation:match_columns: takes a Relation but got: "..tostring(obj))
+  local self_empty = self:isempty()
+  local obj_empty = M.Relation.isempty(obj)
+  assert(self_empty or (math.tointeger(col1) and col1 > 0 and col1 <= #self), "Relation:match_columns: col1 out of range: "..tostring(col1))
+  assert(obj_empty or (math.tointeger(col2) and col2 > 0 and col2 <= #obj), "Relation:match_columns: col2 out of range: "..tostring(col2))
+
   local diff
-  if type(obj.bitfield) == "table" then
-    assert(self.row_count == obj.row_count or #self.bitfield == 0 or #obj.bitfield == 0, "Relation:match_columns: requires non-empty Relations to have equal row_counts but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
-    assert(math.tointeger(col1) and col1 > 0 and col1 <= #self.bitfield, "Relation:match_columns: col1 out of range: "..tostring(col1))
-    assert(math.tointeger(col2) and col2 > 0 and col2 <= #obj.bitfield, "Relation:match_columns: col2 out of range: "..tostring(col2))
-    if #self.bitfield == 0 then
-      diff = obj.row_count
-    elseif #obj.bitfield == 0 then
-      diff = self.row_count
-    else
-      diff = self.bitfield[col1]:column_diff(obj.bitfield[col2])
-    end
+  if self_empty and obj_empty then
+    diff = 0
+  elseif self_empty then
+    diff = obj[col2]:column_diff(self)
+  elseif obj_empty then
+    diff = self[col1]:column_diff(obj)
   else
-    diff = self.row_count  -- for convenience let :match_columns({}) = :match_columns(M.Relation:new())
+    diff = self[col1]:column_diff(obj[col2])
   end
   return diff
 end
 
 --[[
   /* Compute the weight of a Column function as col_matches : self -> obj */
+    NOTE: Weight between empty Relations is 0. Weight to an empty
+    Relation simply counts the 1s in the other and from an empty Relation
+    counts Columns and the 1s in the other.
 --]]
 function M.Relation:weight(obj, col_matches)
-  -- assert(not M.Relation.isempty(self), "Relation:weight: self must be a non-empty Relation but have: "..tostring(obj))
-  -- assert(not M.Relation.isempty(obj), "Relation:weight: obj must be a non-empty Relation but got: "..tostring(obj))
-  assert(#self.bitfield > 0, "Relation:weight: self must be a non-empty Relation")
-  assert(type(obj.bitfield) == "table" and #obj.bitfield > 0, "Relation:weight: obj must be a non-empty Relation but got: "..tostring(obj))
-  assert(type(col_matches) == "table" and #col_matches == self.column_count, "Relation:weight: col_matches must be an array of same size as first relation but: "..tostring(self.column_count).." ~= "..tostring(#col_matches))
-  local col_used, use_count, diff
+  assert(type(obj) == "table", "Relation:weight: takes a Relation but got: "..tostring(obj))
+  assert(type(col_matches) == "table" and #col_matches == #self, "Relation:weight: col_matches must be an array of same size as source Relation but: "..tostring(#self).." ~= "..tostring(#col_matches))
+  local from_col_count, to_col_count = 0, 0
+  local diff, col_used, use_count
 
-  -- clear image of the match in r2
+  -- handle empty Relations
+  local self_empty = self:isempty()
+  local obj_empty = M.Relation.isempty(obj)
+  if self_empty and obj_empty then
+    -- g: Rel_0 -> Rel_0
+    from_col_count = 0
+    to_col_count = 0
+  elseif self_empty then
+    -- g: Rel_0 -> obj
+    from_col_count = #obj
+    to_col_count = #obj
+  elseif obj_empty then
+    -- g: self -> Rel_0
+    from_col_count = #self
+    to_col_count = #self
+  else
+    from_col_count = #self
+    to_col_count = #obj
+  end
+
+  -- clear image of the match in obj
   col_used = {}
-  for i = 1, obj.column_count do
+  for i = 1, to_col_count do
     col_used[i] = 0
   end
 
   -- apply current match
   diff = 0
-  for i = 1, self.column_count do
+  for i = 1, from_col_count do
     diff = diff + self:match_columns(obj, i, col_matches[i])
     col_used[col_matches[i]] = 1
   end
 
   -- count columns in the image
   use_count = 0
-  for i = 1, obj.column_count do
-    use_count = use_count + col_used[i]
+  -- leave 0 when self is empty (Rel_0)
+  if not self_empty then
+    for i = 1, to_col_count do
+      use_count = use_count + col_used[i]
+    end
   end
 
   -- apply penalty for unmatched columns
-  diff = diff + (obj.column_count - use_count) * obj.row_count
+  diff = diff + (to_col_count - use_count)
 
   return diff
 end
@@ -612,9 +716,10 @@ end
     2 2
 --]]
 
+-- function M.matches(cols1,cols2)
 local function matches(cols1,cols2)
-  assert(math.tointeger(cols1) and cols2 > 0, "matches: cols1 must be positive integer but got: "..tostring(cols1))
-  assert(math.tointeger(cols2) and cols2 > 0, "matches: cols2 must be positive integer but got: "..tostring(cols2))
+  assert(math.tointeger(cols1) and cols2 >= 0, "matches: cols1 must be positive integer but got: "..tostring(cols1))
+  assert(math.tointeger(cols2) and cols2 >= 0, "matches: cols2 must be positive integer but got: "..tostring(cols2))
   -- initialize running indices and matches
   local col, maxcol = 1, 1
   local matches = {0}
@@ -651,16 +756,22 @@ end
 function M.Relation:min_weight(obj)
   -- assert(not M.Relation.isempty(self), "Relation:min_weight: self must be a non-empty Relation but have: "..tostring(obj))
   -- assert(not M.Relation.isempty(obj), "Relation:min_weight: obj must be a non-empty Relation but got: "..tostring(obj))
-  assert(#self.bitfield > 0, "Relation:min_weight: self must be a non-empty Relation")
-  assert(type(obj.bitfield) == "table" and #obj.bitfield > 0, "Relation:min_weight: obj must be a non-empty Relation but got: "..tostring(obj))
-  assert(math.tointeger(obj.row_count) and math.tointeger(obj.column_count), "Relation:min_weight: obj must be a Relation but got: "..tostring(obj))
+  -- assert(#self.bitfield > 0, "Relation:min_weight: self must be a non-empty Relation")
+  -- assert(type(obj.bitfield) == "table" and #obj.bitfield > 0, "Relation:min_weight: obj must be a non-empty Relation but got: "..tostring(obj))
+  -- assert(math.tointeger(obj.row_count) and math.tointeger(obj.column_count), "Relation:min_weight: obj must be a Relation but got: "..tostring(obj))
   local wt, min_wt
 
+  -- handle empty Relations
+  local from_col_count, to_col_count = 0, 0
+  if not self:isempty() then from_col_count = #self end
+  if not M.Relation.isempty(obj) then to_col_count = #obj end
+
   -- initialize worst case
-  min_wt = obj.column_count * obj.row_count
+  -- min_wt = obj.column_count * obj.row_count
+  min_wt = to_col_count * (obj.row_count or 0)
 
   -- use the matches generator
-  for col_matches in matches(self.column_count, obj.column_count) do
+  for col_matches in matches(from_col_count, to_col_count) do
     wt = self:weight(obj, col_matches)
     if wt < min_wt then min_wt = wt end
   end
@@ -673,7 +784,7 @@ end
   Outputs: relation distance
 --]]
 function M.Relation:relmetric(r2)
-  assert(type(r2) == "table" and type(r2.column_count) == "number", "Relation:relmetric: takes a Column but got: "..tostring(r2))
+  assert(type(r2) == "table", "Relation:relmetric: takes a Column but got: "..tostring(r2))
   local w1, w2
   if M.CHK_WT_BOTH_DIRS then
     w1 = self:min_weight(r2)
@@ -683,10 +794,17 @@ function M.Relation:relmetric(r2)
     else
       return w2
     end
-  elseif self.column_count <= r2.column_count then
-    return self:min_weight(r2)
   else
-    return r2:min_weight(self)
+    -- handle empty Relations
+    local from_col_count, to_col_count = 0, 0
+    if not self:isempty() then from_col_count = #self end
+    if not M.Relation.isempty(r2) then to_col_count = #r2 end
+
+    if from_col_count <= to_col_count then
+      return self:min_weight(r2)
+    else
+      return r2:min_weight(self)
+    end
   end
 end
 
