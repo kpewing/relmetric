@@ -8,7 +8,7 @@ local M = {}
 -- ENVIRONMENT VARIABLE: CHK_WT_BOTH_DIRS
 -- whether to check min weight in both directions or rely on Property 2 that
 --   if #Y1<=#Y2, then distance(R1,R2) = min weight(g|Y1-Y2))
-M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
+M.CHK_WT_BOTH_DIRS = (os.getenv("RELMETRIC_CHK_WT_BOTH_DIRS") == "true") or false
 
 --[[
   /* A Relation is represented via an array of Columns.,
@@ -22,9 +22,9 @@ M.CHK_WT_BOTH_DIRS = os.getenv("CHK_WT_BOTH_DIRS") or false
   -- Bit encoding
   -- Export only M.MAX_INT, M.INT_SIZE, M.ROWS_PER_UNSIGNED
 
-  -- M.MAX_INT = math.maxinteger -- Lua integer (usually long long)
-  M.MAX_INT = 0xffff -- unsigned short
+  M.MAX_INT = math.tointeger(os.getenv("RELMETRIC_MAX_INT")) or 0xffff -- unsigned short
   M.INT_SIZE = 4 * #string.format('%X', M.MAX_INT)
+  local HEX_FORM = "0x%0"..tostring(#string.format('%X', M.MAX_INT)).."x"
   M.ROWS_PER_UNSIGNED = M.INT_SIZE
   local ROW_MASK = {}
   ROW_MASK[M.ROWS_PER_UNSIGNED] = 0x1
@@ -132,6 +132,11 @@ function M.Column:toints()
   end
 end
 
+-- returns string representation of Column as list of hex ints
+function M.Column:tohex()
+  return string.format("{"..string.rep(HEX_FORM,#self,', ').."}",table.unpack(self))
+end
+
 -- generate a string that prints vertically, most-to-least significant
 function M.Column:__tostring()
   local res = ""
@@ -206,16 +211,21 @@ function M.Column:__le(obj)
 
   if self:isempty() then
     res = true
-  elseif M.Column.isempty() then
+  elseif M.Column.isempty(obj) then
     res = false
   else
     local ints1 = {self:toints()}
     local ints2 = {obj:toints()}
     assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
     assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__le requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-    for i = 1, #ints1 do  -- empty <= everything
+    res = true
+    for i = 1, #ints1 do
       if ints1[i] > ints2[i] then
         res = false
+        break
+      elseif ints1[i] < ints2[i] then
+        res = true
+        break
       end
     end
   end
@@ -225,20 +235,25 @@ end
 -- less than for Columns
 function M.Column:__lt(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__lt takes Columns but got: "..tostring(obj))
-  local res = true
+  local res
 
-  if self:isempty() then
+  if M.Column.isempty(obj) then
     res = false
-  elseif M.Column.isempty(obj) then
+  elseif M.Column.isempty(self) then
     res = true
   else
     local ints1 = {self:toints()}
     local ints2 = {obj:toints()}
     assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
     assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:__lt requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-    for i = 1, #ints1 do  -- empty < everything other than empty
-      if ints1[i] >= ints2[i] then
+    res = false
+    for i = 1, #ints1 do
+      if ints1[i] > ints2[i] then
         res = false
+        break
+      elseif ints1[i] < ints2[i] then
+        res = true
+        break
       end
     end
   end
@@ -319,23 +334,24 @@ function M.Column:__bor(obj)
   end
 end
 
--- share_rel checks whether two Columns share a relation in any row
+-- isdisjoint checks whether two Columns are disjoint by rows
 -- Input:  obj = a Column
--- Output: boolean whether input and self share a relation in any row
-function M.Column:share_rel(obj)
-  local res = false
+-- Output: boolean whether input and self are disjoint by rows
+function M.Column:isdisjoint(obj)
+  local res = true
   if not self:isempty() and not M.Column.isempty(obj) then
-    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:share_rel takes Columns but got: "..tostring(obj))
+    assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:isdisjoint: takes Columns but got: "..tostring(obj))
     local ints1 = {self:toints()}
     local ints2 = {obj:toints()}
-    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:share_rel requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:share_rel requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
-    local i = 1
-    -- check for true only if both #ints1, #ints2 > 0
+    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:isdisjoint: requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:isdisjoint: requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+
+    -- check only if both #ints1, #ints2 > 0
     if #ints2 > 0 then
-      while not res and i <= #ints1 do
-        res = (ints1[i] & ints2[i] > 0)
-        i = i + 1
+      for i, x in ipairs(ints1) do
+        if (x & ints2[i] > 0) then
+          break
+        end
       end
     end
   end
@@ -546,6 +562,15 @@ function M.Relation:toints()
   return table.unpack(res)
 end
 
+-- tohex returns string representation of Relation as lists of hex ints
+function M.Relation:tohex()
+  local s = ""
+  for i,c in ipairs(self) do
+    s = s..string.format("Col %s: %s\n",i, c:tohex())
+  end
+  return s
+end
+
 -- generate a string that prints out a relation
 function M.Relation:__tostring()
   local res = ""
@@ -585,11 +610,11 @@ end
 -- Input:  obj = a Relation
 -- Output: self - obj = a new Relation
 function M.Relation:__sub(obj)
-  assert(type(obj) == "table", "Relation:__sub: takes a Relation but got: "..tostring(obj))
   local new_rel = {}
   if M.Relation.isempty(obj) then
     new_rel = self
   elseif not self:isempty() then
+    assert(type(obj) == "table", "Relation:__sub: takes a Relation but got: "..tostring(obj))
     assert(self.row_count == obj.row_count, "Relation:__sub: requires non-empty Relations to have equal row_counts but: "..tostring(self.row_count).." ~= "..tostring(obj.row_count))
     new_rel.row_count = self.row_count
     local used_cols = {}
@@ -605,6 +630,105 @@ function M.Relation:__sub(obj)
     end
   end
   return M.Relation:new(new_rel)
+end
+
+-- function M.merge_sort(cols)
+--   local left, right = {}, {}
+--   if #cols <= 1 then
+--     return cols
+--   else
+--     local mid = #cols // 2 + 1
+--     for i, x in ipairs(cols) do
+--       if i < mid then
+--         left[#left+1] = x
+--       else
+--         right[#right+1] = x
+--       end
+--     end
+--     left = M.merge_sort(left)
+--     right = M.merge_sort(right)
+--   end
+--   return M.merge(left, right)
+-- end
+
+-- function M.merge(left,right)
+--   local res = {}
+--   while #left > 0 and #right > 0 do
+--     if left[1] <= right[1] then
+--       res[#res+1] = left[1]
+--       table.remove(left, 1)
+--     else
+--       res[#res+1] = right[1]
+--       table.remove(right, 1)
+--     end
+--   end
+--   while #left > 0 do
+--     res[#res+1] = left[1]
+--     table.remove(left, 1)
+--   end
+--   while #right > 0 do
+--     res[#res+1] = right[1]
+--     table.remove(right, 1)
+--   end
+--   return res
+-- end
+
+-- sorted returns a new Relation == self lexically sorted
+function M.Relation:sorted()
+  local res = M.Relation:new(self)
+  if not self:isempty() then
+    table.sort(res)
+  end
+  return res
+end
+
+-- xgroup partitions a Relation by intersection of rows
+-- Input:  obj = {} or nil or non-empty Column
+-- Output: list of X-groups = {<X-group>, ...}
+--   Each X-group = {max = <Colum>, ...<integer>...} where
+--   each <integer> is an index in self to a Column and
+--   the max is a Column that is the union of all these Columns.
+function M.Relation:xgroup(obj)
+  local res = {}
+  local col_used = {}
+  if not self:isempty() then
+    -- construct the X-groups
+    res[1] = {max = self[1]}
+    for i, col in ipairs(self) do
+      local isdisjnt, expanded
+      for j, grp in ipairs(res) do
+        if not expanded then
+          isdisjnt = grp.max:isdisjoint(col)
+          if not isdisjnt then
+            grp[#grp+1] = i
+            grp.max = grp.max | col
+            expanded = j
+          end
+        else
+          isdisjnt = res[expanded].max:isdisjoint(col)
+          if not isdisjnt then
+            table.move(grp, 1, #grp, #res[expanded]+1, res[expanded])
+            res[expanded].max = res[expanded].max | grp.max
+          end
+        end
+      end
+      if isdisjnt then
+        res[#res+1] = {max = col}
+      end
+    end
+    -- restrict to the xgroup matching obj
+    if obj then
+      assert(type(obj) == "table" and math.tointeger(obj.row_count) and math.tointeger(obj[1]), "Relation:xgroup: takes a Column but got: "..tostring(obj))
+      -- find and return just the xgroup intersecting obj
+      for _, xg in ipairs(res) do
+        if xg.max & obj then
+          res = xg
+          break
+        end
+      end
+    end
+  end
+  return res
 end
 
 --[[
