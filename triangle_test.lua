@@ -7,7 +7,7 @@ local RM = require("relmetric")
 
 local rows_per_unsigned =  RM.ROWS_PER_UNSIGNED
 local TEST_CASES, MAX_COLS, MAX_ROWS = 10, 6, 8
-local r1rows, cols
+local r1rows, cols, int_count
 local ints, bf, rels = {}, {}, {}
 local d12, d13, d23
 local fail
@@ -15,19 +15,18 @@ local fail
 for t = 1, TEST_CASES do
   -- randomly size and populate relations
   r1rows = math.random(MAX_ROWS)
+  cols = math.random(MAX_COLS)
+  int_count = r1rows // rows_per_unsigned + 1
   for r = 1, 3 do
-    cols = math.random(MAX_COLS)
+    bf = {}
     for i = 1, cols do
-      for j = 1, (r1rows / rows_per_unsigned + 1) do
+      ints = {}
+      for j = 1, int_count do
         ints[j] = math.random(0xFFFF)
       end
-      bf[i] = RM.Column:fromints(table.unpack(ints))
+      bf[i] = RM.Column:new({row_count = r1rows, table.unpack(ints)})
     end
-    rels[r] = RM.Relation:new({
-      row_count = r1rows,
-      column_count = cols,
-      bitfield = bf
-    })
+    rels[r] = RM.Relation:fromcols(bf)
   end
 
   -- compute distances
