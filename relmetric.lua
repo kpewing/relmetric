@@ -178,7 +178,7 @@ function M.Column:__eq(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__eq takes Columns but got: "..tostring(obj))
   local res
   local self_empty = self:isempty()
-  local obj_empty = M.Column.isempty()
+  local obj_empty = M.Column.isempty(obj)
 
   if self_empty and obj_empty then
     res = true
@@ -193,6 +193,7 @@ function M.Column:__eq(obj)
       if #ints1 ~= #ints2 then
         res = false
       else
+        res = true
         for i = 1, #ints1 do
           if ints1[i] ~= ints2[i] then
             res = false
@@ -265,7 +266,7 @@ function M.Column:__band(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__band takes Columns but got: "..tostring(obj))
   local res = true
 
-  if M.Column.isempty() then
+  if M.Column.isempty(obj) then
     res = M.Column:new(self)
   elseif self:isempty() then
     res = M.Column:new(obj)
@@ -302,7 +303,7 @@ function M.Column:__bor(obj)
   assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:__bor takes Columns but got: "..tostring(obj))
   local res
 
-  if M.Column.isempty() then
+  if M.Column.isempty(obj) then
     res = M.Column:new(self)
   elseif self:isempty() then
     res = M.Column:new(obj)
@@ -338,22 +339,24 @@ end
 -- Input:  obj = a Column
 -- Output: boolean whether input and self are disjoint by rows
 function M.Column:isdisjoint(obj)
-  local res = true
-  if not self:isempty() and not M.Column.isempty(obj) then
+  local res
+  if self:isempty() and M.Column.isempty(obj) then
+    res = true
+  elseif not self:isempty() and not M.Column.isempty(obj) then
     assert(type(obj) == "table" and math.tointeger(obj.row_count), "Column:isdisjoint: takes Columns but got: "..tostring(obj))
     local ints1 = {self:toints()}
     local ints2 = {obj:toints()}
-    assert(self.row_count == obj.row_count or #ints1 == 0 or #ints2 == 0, "Column:isdisjoint: requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
-    assert(#ints1 == #ints2 or #ints1 == 0 or #ints2 == 0, "Column:isdisjoint: requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
+    assert(self.row_count == obj.row_count, "Column:isdisjoint: requires non-empty Columns to have equal row_count but: "..tostring(obj.row_count).." ~= "..tostring(self.row_count))
+    assert(#ints1 == #ints2, "Column:isdisjoint: requires non-empty Columns to have equal length but: "..tostring(#ints1).." ~= "..tostring(#ints2))
 
-    -- check only if both #ints1, #ints2 > 0
-    if #ints2 > 0 then
-      for i, x in ipairs(ints1) do
-        if (x & ints2[i] > 0) then
-          break
-        end
+    for i, x in ipairs(ints1) do
+      if (x & ints2[i] > 0) then
+        res = false
+        break
       end
     end
+  else
+    res = true
   end
   return res
 end
@@ -689,33 +692,49 @@ end
 --   each <integer> is an index in self to a Column and
 --   the max is a Column that is the union of all these Columns.
 function M.Relation:xgroup(obj)
-  local res = {}
+  local res, zero_group = {}, {max = M.Column:new({row_count = self.row_count})}
   local col_used = {}
+  -- construct the X-groups
   if not self:isempty() then
-    -- construct the X-groups
-    res[1] = {max = self[1]}
-    for i, col in ipairs(self) do
-      local isdisjnt, expanded
+    -- quickly handle initial empties
+    local start_i = 1
+    while self[start_i] == zero_group.max do
+      zero_group[#zero_group + 1] = start_i
+      start_i = start_i + 1
+    end
+    if #zero_group > 0 then res[1] = zero_group end
+    -- loop over remaining columns
+    res[start_i] = {max = self[start_i]}
+    for i = start_i, #self do
+      local col = self[i]
+      local isdisjnt = nil
+      -- check col v. all groups
       for j, grp in ipairs(res) do
+        local expanded = nil
         if not expanded then
+          -- haven't yet found an overlapping grp j to expand: this grp?
           isdisjnt = grp.max:isdisjoint(col)
           if not isdisjnt then
-            grp[#grp+1] = i
-            grp.max = grp.max | col
+            grp[#grp + 1] = i
+            grp.max = (grp.max | col)
             expanded = j
+            break
           end
         else
-          isdisjnt = res[expanded].max:isdisjoint(col)
+          -- col overlapped grp expanded: combine with any remaining grps?
+          isdisjnt = res[expanded].max:isdisjoint(grp)
           if not isdisjnt then
             table.move(grp, 1, #grp, #res[expanded]+1, res[expanded])
-            res[expanded].max = res[expanded].max | grp.max
+            res[expanded].max = (res[expanded].max | grp.max)
           end
         end
       end
+      -- create a new group for col if disjoint from all grps
       if isdisjnt then
-        res[#res+1] = {max = col}
+        res[#res+1] = {max = col, i}
       end
     end
+
     -- restrict to the xgroup matching obj
     if obj then
       assert(type(obj) == "table" and math.tointeger(obj.row_count) and math.tointeger(obj[1]), "Relation:xgroup: takes a Column but got: "..tostring(obj))
@@ -730,6 +749,58 @@ function M.Relation:xgroup(obj)
   end
   return res
 end
+
+-- kappa returns the `kappa' value for a Relation according to the algorithm in
+-- Kenneth P. Ewing, ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+function M.Relation:kappa(...)
+  local res
+  local max_count = math.tointeger(...)
+  assert(not ... or (max_count and max_count >= 0), "Relation:kappa: optional max_count must be non-negative integer but got: "..tostring(...))
+  if self:isempty() then
+    return 0
+  else
+    local blockcounts = {}
+    local xgs = self:xgroup()
+    for i, g in ipairs(xgs) do
+      blockcounts[#blockcounts+1] = #g
+    end
+    table.sort(blockcounts)
+    local blocksums = {}
+    blocksums[1] = blockcounts[1]
+    for i = 2, #blockcounts do
+      blocksums[i] = blocksums[i-1] + blockcounts[i]
+    end
+    local cap = max_count or #self
+    local m = 0
+    if blocksums[1] <= cap then
+      repeat
+        m = m + 1
+      until m > #blocksums or blocksums[m] > cap
+    end
+    if #blocksums == 1 then
+      res = 0
+    elseif cap >= #self then
+      res = blocksums[m-1]
+    elseif blocksums[m] + blockcounts[m] > cap then
+      res = blocksums[m-1]
+    else
+      res = blocksums[m]
+    end
+  end
+  return res
+end
+
+-- rel_dist_bound returns the bound on the Relation metric in
+-- Kenneth P. Ewing, ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+function M.Relation:rel_dist_bound(obj)
+  assert(type(obj) == "table", "Relation:rel_dist_bound: takes a Relation but got: "..tostring(obj))
+  local res
+  local delta12, delta21 = self - obj, obj - self
+  local kappa12, kappa21 = self:kappa(#obj), obj:kappa(#self)
+  res = math.max(#self, #obj) - math.min(#self - #delta12 + kappa12, #obj - #delta21 + kappa21)
+  return res
+end
+
 
 --[[
   /* Compare two specified columns between relations.
