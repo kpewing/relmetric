@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, iter::zip};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -89,6 +89,30 @@ impl Column {
         };
         return res
     }
+
+    pub fn column_diff(&self, other: &Column) -> u32 {
+        //! `column_diff` counts the differences of two Columns
+        //! Panics if the Columns have different row_count or bit_field lengths.
+        let mut res;
+        if self.is_empty() {
+            res = other.bit_field.iter().fold(0, |acc, x| acc + x.count_ones());
+        } else if other.is_empty() {
+            res = self.bit_field.iter().fold(0, |acc, x| acc + x.count_ones());
+        } else {
+            assert_eq!(self.row_count, other.row_count, "Column::column_diff requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, other.row_count);
+            assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::column_diff requires non-empty Columns to have equal bit_field lengths but: {} != {}", self.bit_field.len(), other.bit_field.len());
+            let whole_ints = &self.row_count / u8::BITS as usize;
+            let rest_bits = &self.row_count % u8::BITS as usize;
+            const REST_MASK: [u8; 8] = [0b10000000u8, 0b11000000u8, 0b11100000u8, 0b11110000u8, 0b11111000u8, 0b11111100u8, 0b11111110u8, 0b11111111u8];
+            let zipped = zip(&self.bit_field, &other.bit_field);
+            res = zipped.take(whole_ints).fold(0, |acc, x| acc + (x.0 & x.1).count_ones());
+            if rest_bits > 0 {
+                res = res + (self.bit_field[whole_ints + 1] & other.bit_field[whole_ints + 1] & REST_MASK[rest_bits]).count_ones()
+            };
+            // res = zipped.enumerate().fold(0, |acc, x| if x.0 < whole_ints {acc + (x.1.0 & x.1.1).count_ones()} else {if x.0 == whole_ints && rest_bits > 0 {acc + (x.1.0 & x.1.1 & REST_MASK[rest_bits]).count_ones()} else {acc}});
+        }
+        return res
+    }
 }
 
 // # Traits
@@ -135,34 +159,6 @@ impl From<Vec<u64>> for Column {
         Column { row_count: new_bits.len() * 8, bit_field: new_bits }
     }
 }
-
-// ## Index, IndexMut
-//
-// impl Index<usize> for Column {
-//     type Output = u8;
-
-//     fn index(&self, n: usize) -> &Self::Output {
-//         assert!(!self.is_empty(), "Can't index empty Column");
-//         assert!(n <= self.row_count, "Index {n} outside range: 0..{}", self.row_count);
-//         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
-//         let the_int = n / u8::BITS as usize;
-//         let the_bit = n % u8::BITS as usize;
-//         let res = self.bit_field[the_int] & ROW_MASK[the_bit];
-//         return &res
-//     }
-// }
-
-// impl IndexMut<usize> for Column {
-//     fn index_mut(&mut self, n: usize) -> &mut Self::Output {
-//         assert!(!self.is_empty(), "Can't index empty Column");
-//         assert!(n <= self.row_count, "Index {n} outside range: 0..{}", self.row_count);
-//         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
-//         let the_int = n / u8::BITS as usize;
-//         let the_bit = n % u8::BITS as usize;
-//         let mut res = self.bit_field[the_int] & ROW_MASK[the_bit];
-//         return &mut res
-//     }
-// }
 
 // ## Display
 //
@@ -227,7 +223,18 @@ mod tests {
         let c1 = Column::from(vec![0b10000000u8, 0b00000001u8]);
         let c2 = Column::from(vec![0b00000001u8,0b10000000u8]);
         let c3 = Column::from(vec![0b10000001u8,0b10000000u8]);
-        assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {}", c1.to_hex(), c2.to_hex());
-        assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {}", c2.to_hex(), c3.to_hex());
+        assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {} for c1 {:?} and c2 {:?}", c1.to_hex(), c2.to_hex(), c1, c2);
+        assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {} for c1 {:?} and c2 {:?}", c2.to_hex(), c3.to_hex(), c1, c2);
+    }
+
+    #[test]
+    fn column_diff_works() {
+        let c0 = Column::new();
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let mut res = c1.column_diff(&c0);
+        let want = 0x3000u16.count_ones() + 0x000fu16.count_ones();
+        assert_eq!(res, want, "Column::column_diff of c1 and empty is {} not {} for c1 {:?}", res, want, c1);
+        res = c0.column_diff(&c1);
+        assert_eq!(res, want, "Column::column_diff of empty and c1 is {} not {} for c1 {:?}", res, want, c1);
     }
 }
