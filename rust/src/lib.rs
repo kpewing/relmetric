@@ -49,6 +49,7 @@ impl Column {
         return s
     }
     pub fn get_bit(&self, n:usize) -> bool {
+        //! `get_bit` returns the bool value of the n'th bit
         assert!(!self.is_empty(), "Can't get_bit from empty Column");
         assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
@@ -57,6 +58,7 @@ impl Column {
         return self.bit_field[the_int] & ROW_MASK[the_bit] > 0;
     }
     pub fn set_bit(&mut self, n:usize, v: bool) {
+        //! `set_bit` set the n'th bit to the given bool value
         assert!(!self.is_empty(), "Can't get_bit from empty Column");
         assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
@@ -67,6 +69,25 @@ impl Column {
         } else {
             self.bit_field[the_int] = self.bit_field[the_int] & ROW_MASK[the_bit];
         }
+    }
+
+    pub fn is_disjoint(&self, other: &Column) -> bool {
+        //! `is_disjoint` checks whether two columns are disjoint by rows
+        let mut res = true;
+        if self.is_empty() & other.is_empty() {
+            res = true
+        } else if !self.is_empty() & !other.is_empty() {
+            assert_eq!(self.row_count, other.row_count, "Column::disjoint requires non-empty Columns to have equal row_count but {} != {}", self.row_count, other.row_count);
+            assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::disjoint requires non-empty Columns to have equal lengths but {} != {}", self.bit_field.len(), other.bit_field.len());
+            for (i, elem) in self.bit_field.iter().enumerate() {
+                if elem & other.bit_field[i] > 0 {
+                    res = false
+                }
+            }
+        } else {
+            res = true
+        };
+        return res
     }
 }
 
@@ -199,5 +220,14 @@ mod tests {
         let res = format!("{}", c);
         let want = "1\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n";
         assert_eq!(res, want, "{} doesn't equal {}", res, want);
+    }
+
+    #[test]
+    fn is_disjoint_works() {
+        let c1 = Column::from(vec![0b10000000u8, 0b00000001u8]);
+        let c2 = Column::from(vec![0b00000001u8,0b10000000u8]);
+        let c3 = Column::from(vec![0b10000001u8,0b10000000u8]);
+        assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {}", c1.to_hex(), c2.to_hex());
+        assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {}", c2.to_hex(), c3.to_hex());
     }
 }
