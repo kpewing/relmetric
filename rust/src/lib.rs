@@ -48,10 +48,11 @@ impl Column {
         s.push_str("}");
         return s
     }
+
     pub fn get_bit(&self, n:usize) -> bool {
         //! `get_bit` returns the bool value of the n'th bit
-        assert!(self.row_count > 0 || !self.is_empty(), "Can't get_bit from empty Column");
-        assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
+        assert!(self.row_count > 0, "Column::get_bit requires row_count > 0");
+        assert!(n < self.row_count, "Column::get_bit index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
@@ -61,13 +62,18 @@ impl Column {
             return self.bit_field[the_int] & ROW_MASK[the_bit] > 0;
         }
     }
+
     pub fn set_bit(&mut self, n:usize, v: bool) {
-        //! `set_bit` set the n'th bit to the given bool value
-        assert!(self.row_count > 0, "Can't set_bit in empty Column");
-        assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
+        //! `set_bit` set the n'th bit to the given bool value, pushing any needed zeros onto bit_field
+        assert!(self.row_count > 0, "Column::set_bit requires row_count > 0");
+        assert!(n < self.row_count, "Column::set_bit index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
+        let need_ints = the_int.checked_sub(self.bit_field.len()).unwrap_or(0);
+        for _ in 0..need_ints {
+            self.bit_field.push(0u8);
+        };
         if v == true {
             self.bit_field[the_int] = self.bit_field[the_int] | ROW_MASK[the_bit];
         } else {
