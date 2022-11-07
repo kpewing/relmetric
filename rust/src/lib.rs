@@ -95,7 +95,15 @@ impl Column {
         //! `is_disjoint` checks whether two columns are disjoint by rows
         //! True unless self and other share a true bit in some row
         //! NB: Unlike the `lua` version, empties / zeros are not disjoint from each other and are disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
-        if !self.is_empty() & !other.is_empty() {
+        if self.is_empty() {
+            if other.is_empty() {
+                return false
+            } else {
+                return true
+            }
+        } else if other.is_empty() {
+            return true
+        } else {
             let mut res = true;
             assert_eq!(self.row_count, other.row_count, "Column::disjoint requires non-empty Columns to have equal row_count but {} != {}", self.row_count, other.row_count);
             assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::disjoint requires non-empty Columns to have equal lengths but {} != {}", self.bit_field.len(), other.bit_field.len());
@@ -105,8 +113,6 @@ impl Column {
                 }
             }
             return res
-        } else {
-            return false
         }
     }
 
@@ -282,12 +288,14 @@ impl Relation {
         //! `get_col()` takes an index n and returns the n'th Column in the Relation
         &self.columns[n]
     }
-    // pub fn get_col_mut(&self, n:usize) -> &mut Column {
-    //     //! `get_col_mut()` takes an index n and returns a mutable to the n'th Column in the Relation
-    //     &self.columns[n]
-    // }
     pub fn set_col(&mut self, n:usize, v:Column) {
-        //! `set_col()` takes an index n and Column v and replaces the n'th Column in the Relation with v
+        //! `set_col()` takes an index n and Column v and replaces the n'th Column in the Relation with v, pushing any needed zero columns
+        assert!(self.row_count == v.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, v.row_count);
+        let need_cols = n.checked_sub(self.columns.len()).unwrap_or(0);
+        for _ in 0..need_cols {
+            self.columns.push(Column::zero(self.row_count));
+        };
+        self.columns[n] = v
     }
     pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
         //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
@@ -498,8 +506,8 @@ mod tests {
         assert!(!zero.is_disjoint(&zero), "Fails to see that zeros are NOT disjoint:\n left: {:?}\nright: {:?}", zero, zero);
         assert!(!empty.is_disjoint(&zero), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", empty, zero);
         assert!(!zero.is_disjoint(&empty), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", zero, empty);
-        assert!(!c1.is_disjoint(&empty), "Fails to see that {} is NOT disjoint from empty {}", c1.to_hex(), empty.to_hex());
-        assert!(!c1.is_disjoint(&zero), "Fails to see that {} is NOT disjoint from zero {}", c1.to_hex(), zero.to_hex());
+        assert!(c1.is_disjoint(&empty), "Fails to see that {} is disjoint from empty {}", c1.to_hex(), empty.to_hex());
+        assert!(c1.is_disjoint(&zero), "Fails to see that {} is disjoint from zero {}", c1.to_hex(), zero.to_hex());
         assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {} for c1 {:?} and c2 {:?}", c1.to_hex(), c2.to_hex(), c1, c2);
         assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {} for c1 {:?} and c2 {:?}", c2.to_hex(), c3.to_hex(), c1, c2);
     }
@@ -583,17 +591,16 @@ mod tests {
 
     #[test]
     fn sets_and_gets_col() {
-        let mut r = Relation::from(vec!(vec![0b00000001u8]));
-        let mut res = r.get_col(0).get_bit(7);
-        let want = true;
-        assert_eq!(res, want, "Gotten bit {} doesn't match {}", res, want);
-        r.columns[0].set_bit(6, true);
-        res = r.columns[0].get_bit(6);
-        assert_eq!(res, want, "Set bit {} doesn't match {}", res, want);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let mut r1 = Relation::from(vec![c1.clone(), c2.clone()]);
+        assert_eq!(r1.get_col(0), &c1, "Fails to get column {}", 1);
+        r1.set_col(0, c2);
+        assert!(r1.get_col(0).is_empty(), "Fails to set column {} to zero", 1);
     }
 
     #[test]
-    fn sub_works_for_relation() {
+    fn rel_sub_works() {
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
