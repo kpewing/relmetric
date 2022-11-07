@@ -1,4 +1,4 @@
-use std::{fmt, iter::zip, ops::{Sub, BitAnd}};
+use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -35,7 +35,7 @@ impl Column {
     }
     pub fn is_empty(&self) -> bool {
         //! `is_empty` returns `true` iff the `row_count` == 0 or the `bit_field` is empty
-        self.row_count == 0 || self.bit_field.is_empty()
+        self.row_count == 0 || self.bit_field.is_empty() || self.bit_field.iter().all(|&x|x == 0)
     }
     pub fn to_hex(&self) -> String {
         //! `to_hex` returns a string with hexadecimal representation of the Column's `u8` bytes
@@ -50,16 +50,20 @@ impl Column {
     }
     pub fn get_bit(&self, n:usize) -> bool {
         //! `get_bit` returns the bool value of the n'th bit
-        assert!(!self.is_empty(), "Can't get_bit from empty Column");
+        assert!(self.row_count > 0 || !self.is_empty(), "Can't get_bit from empty Column");
         assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
-        return self.bit_field[the_int] & ROW_MASK[the_bit] > 0;
+        if self.bit_field.len() == 0 {
+            return false
+        } else {
+            return self.bit_field[the_int] & ROW_MASK[the_bit] > 0;
+        }
     }
     pub fn set_bit(&mut self, n:usize, v: bool) {
         //! `set_bit` set the n'th bit to the given bool value
-        assert!(!self.is_empty(), "Can't get_bit from empty Column");
+        assert!(self.row_count > 0, "Can't set_bit in empty Column");
         assert!(n < self.row_count, "Index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
@@ -177,7 +181,7 @@ impl fmt::Display for Column {
     }
 }
 
-// ## BitAnd
+// ## BitAnd, BitOr
 impl BitAnd for Column {
     type Output = Self;
 
@@ -196,6 +200,25 @@ impl BitAnd for Column {
     }
 }
 
+impl BitOr for Column {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        let mut res;
+        if self.is_empty() {
+            res = rhs.clone()
+        } else if rhs.is_empty() {
+            res = self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Column::bitor requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.bit_field.len() == rhs.bit_field.len(), "Column::bitor requires non-empty Columns to have equal length bit fields but: {} != {}", self.bit_field.len(), rhs.bit_field.len());
+            res = Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s | r).collect::<Vec<u8>>());
+        }
+        return res
+    }
+}
+
+
 // Represents a Relation
 //
 // A Relation is a collection of Columns with the same row_count that can be partitioned by whether columns share bits row-by-row (aka `x_group`).
@@ -213,6 +236,13 @@ pub struct Relation {
 pub struct XGroup {
     pub max: Column,
     pub col_indices: Vec<usize>,
+}
+
+impl XGroup {
+    pub fn new() -> XGroup {
+        //! `new()` takes no arguments and returns an empty XGroup
+        Default::default()
+    }
 }
 
 impl Relation {
@@ -243,13 +273,53 @@ impl Relation {
     pub fn set_col(&mut self, n:usize, v:Column) {
         //! `set_col()` takes an index n and Column v and replaces the n'th Column in the Relation with v
     }
-    pub fn xgroup(&mut self) {
+    pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
         //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
         if self.is_empty() {
             self.x_groups = None
         } else {
-            self.x_groups = None
+            let mut zero_grp = XGroup::new();
+            let mut res = vec![zero_grp];
+            for i in 0..self.columns.len() {
+                let mut col = &self.columns[i];
+                let mut isdisjnt = false;
+                // -- check col v. all groups
+                for j in 0..res.len() {
+                    let mut expanded: Option<usize> = None;
+                    match expanded {
+                        // -- haven't yet found an overlapping res[j] to expand: this one?
+                        None => {
+                            isdisjnt = res[j].max.is_disjoint(&col);
+                            if !isdisjnt {
+                                // expand res[j] and save the index
+                                res[j].col_indices.push(i);
+                                res[j].max = res[j].max.clone() | (*col).clone();
+                                expanded = Some(j);
+                                break
+                            }
+                        }
+                        // -- expanded res[idx]: combine with any others?
+                        Some(idx) => {
+                            isdisjnt = res[idx].max.is_disjoint(&res[j].max);
+                            if !isdisjnt {
+                                // drain this res[j]'s col_indices
+                                let mut resj_indices: Vec<usize> = res[j].col_indices.drain(..).collect();
+                                // add them to res[idx]'s col_indices
+                                res[idx].col_indices.append(&mut resj_indices);
+                                // update res[idx].max
+                                res[idx].max = res[idx].max.clone() | res[j].max.clone();
+                            }
+                        }
+                    }
+                    // -- disjoint from all groups: create a new group for col
+                    if isdisjnt {
+                        res.push(XGroup { max: col.clone(), col_indices: vec![i] })
+                    }
+                }
+            }
+            self.x_groups = Some(res)
         }
+        return &self.x_groups
     }
 }
 
@@ -478,13 +548,15 @@ mod tests {
 
     #[test]
     fn xgroup_works() {
-        // match c {
-        //     None => &self.x_groups,
-        //     Some(col) => match self.x_groups {
-        //         None => &self.x_groups,
-        //         Some(xgs) => &xgs.iter().filter(|&&x|x.max & col == col).collect()
-        //         }
-        // }
-
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
+        let mut r1 = Relation::from(vec![c1.clone(), c1, c2, c3]);
+        let res = match r1.xgroup() {
+            None => 0,
+            Some(xgs) => xgs.len(),
+        };
+        let want = 2;
+        assert_eq!(res, want, "\n\nLength of x_groups {} != {} for {:?}", res, want, r1);
     }
 }
