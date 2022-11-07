@@ -1,4 +1,4 @@
-use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr}};
+use std::{fmt, iter::{zip}, ops::{Sub, BitAnd, BitOr}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -28,6 +28,16 @@ impl Column {
     pub fn new() -> Column {
         //! `new()` takes no arguments and returns an empty Column
         Default::default()
+    }
+    pub fn zero(row_count: usize) -> Column {
+        let mut int_count = row_count / (u8::BITS as usize);
+        if row_count % (u8::BITS as usize) > 0 {
+            int_count += 1
+        }
+        Column {
+            row_count,
+            bit_field: vec![0u8; int_count]
+        }
     }
     pub fn len(&self) -> usize {
         //! `len()` returns the number of `u8` integers representing the Column
@@ -83,10 +93,10 @@ impl Column {
 
     pub fn is_disjoint(&self, other: &Column) -> bool {
         //! `is_disjoint` checks whether two columns are disjoint by rows
-        let mut res = true;
-        if self.is_empty() & other.is_empty() {
-            res = true
-        } else if !self.is_empty() & !other.is_empty() {
+        //! True unless self and other share a true bit in some row
+        //! NB: Unlike the `lua` version, empties / zeros are not disjoint from each other and are disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
+        if !self.is_empty() & !other.is_empty() {
+            let mut res = true;
             assert_eq!(self.row_count, other.row_count, "Column::disjoint requires non-empty Columns to have equal row_count but {} != {}", self.row_count, other.row_count);
             assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::disjoint requires non-empty Columns to have equal lengths but {} != {}", self.bit_field.len(), other.bit_field.len());
             for (i, elem) in self.bit_field.iter().enumerate() {
@@ -94,10 +104,10 @@ impl Column {
                     res = false
                 }
             }
+            return res
         } else {
-            res = true
-        };
-        return res
+            return false
+        }
     }
 
     pub fn column_diff(&self, other: &Column) -> u32 {
@@ -284,7 +294,10 @@ impl Relation {
         if self.is_empty() {
             self.x_groups = None
         } else {
-            let mut zero_grp = XGroup::new();
+            let mut zero_grp = XGroup {
+                max: Column::zero(self.row_count),
+                col_indices: vec![]
+            };
             let mut res = vec![zero_grp];
             for i in 0..self.columns.len() {
                 let mut col = &self.columns[i];
@@ -407,14 +420,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_col_is_empty() {
-        let c0: Column = Column::new();
+    fn new_col_works() {
+        let res: Column = Column::new();
+        let want = Column {
+            row_count: 0,
+            bit_field: vec![],
+        };
+        assert_eq!(res, want)
+    }
+
+    #[test]
+    fn zero_col_works() {
+        let res = Column::zero(32);
+        let want = Column {
+            row_count: 32,
+            bit_field: vec![0u8; 4]
+        };
+        assert_eq!(res, want);
+    }
+
+    #[test]
+    fn col_is_empty_works() {
+        let c0 = Column::new();
         let c1 = Column {
             row_count: 32,
-            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8]
+            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8],
         };
-        assert!(c0.is_empty(), "{:?} should not be empty", c0);
-        assert!(!c1.is_empty(), "{:?} should be empty", c1);
+        assert!(c0.is_empty(), "{:?} should be empty", c0);
+        assert!(!c1.is_empty(), "{:?} should not be empty", c1);
     }
 
     #[test]
@@ -455,10 +488,18 @@ mod tests {
     }
 
     #[test]
-    fn is_disjoint_works() {
+    fn col_is_disjoint_works() {
+        let empty = Column::new();
+        let zero = Column::zero(16);
         let c1 = Column::from(vec![0b10000000u8, 0b00000001u8]);
         let c2 = Column::from(vec![0b00000001u8,0b10000000u8]);
         let c3 = Column::from(vec![0b10000001u8,0b10000000u8]);
+        assert!(!empty.is_disjoint(&empty), "Fails to see that empties are NOT disjoint:\n left: {:?}\nright: {:?}", empty, empty);
+        assert!(!zero.is_disjoint(&zero), "Fails to see that zeros are NOT disjoint:\n left: {:?}\nright: {:?}", zero, zero);
+        assert!(!empty.is_disjoint(&zero), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", empty, zero);
+        assert!(!zero.is_disjoint(&empty), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", zero, empty);
+        assert!(!c1.is_disjoint(&empty), "Fails to see that {} is NOT disjoint from empty {}", c1.to_hex(), empty.to_hex());
+        assert!(!c1.is_disjoint(&zero), "Fails to see that {} is NOT disjoint from zero {}", c1.to_hex(), zero.to_hex());
         assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {} for c1 {:?} and c2 {:?}", c1.to_hex(), c2.to_hex(), c1, c2);
         assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {} for c1 {:?} and c2 {:?}", c2.to_hex(), c3.to_hex(), c1, c2);
     }
@@ -475,7 +516,18 @@ mod tests {
     }
 
     #[test]
-    fn new_rel_is_empty() {
+    fn new_rel_works() {
+        let res = Relation::new();
+        let want = Relation {
+            row_count: 0,
+            columns: vec![],
+            x_groups: None,
+        };
+        assert_eq!(res, want)
+    }
+
+    #[test]
+    fn rel_is_empty_works() {
         let r0 = Relation::new();
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
