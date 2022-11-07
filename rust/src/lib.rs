@@ -1,4 +1,4 @@
-use std::{fmt, iter::zip};
+use std::{fmt, iter::zip, ops::{Sub, BitAnd}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -18,7 +18,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// assert!(c0.bit_field.is_empty(), "The bit_field should be empty");
 /// assert!(c0.is_empty());
 /// ```
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Column {
     pub row_count: usize,
     pub bit_field: Vec<u8>,
@@ -177,8 +177,153 @@ impl fmt::Display for Column {
     }
 }
 
-pub struct Relation {
+// ## BitAnd
+impl BitAnd for Column {
+    type Output = Self;
 
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut res;
+        if self.is_empty() {
+            res = rhs.clone()
+        } else if rhs.is_empty() {
+            res = self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Column::bitand requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.bit_field.len() == rhs.bit_field.len(), "Column::bitand requires non-empty Columns to have equal length bit fields but: {} != {}", self.bit_field.len(), rhs.bit_field.len());
+            res = Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s & r).collect::<Vec<u8>>());
+        }
+        return res
+    }
+}
+
+// Represents a Relation
+//
+// A Relation is a collection of Columns with the same row_count that can be partitioned by whether columns share bits row-by-row (aka `x_group`).
+//
+// The default Relation is empty, with `row_count` == 0 and empty collection of Columns.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Relation {
+    pub row_count: usize,
+    pub columns: Vec<Column>,
+    x_groups: Option<Vec<XGroup>>,
+}
+
+// Represents indices of the Columns in a Relation that overlap by rows
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct XGroup {
+    pub max: Column,
+    pub col_indices: Vec<usize>,
+}
+
+impl Relation {
+    pub fn new() -> Relation {
+        //! `new()` takes no arguments and returns an empty Relation
+        Default::default()
+    }
+    pub fn len(&self) -> usize {
+        //! `len()` returns the number of Columns in the Relation
+        self.columns.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        //! `is_empty()` returns whether the Relation is empty
+        self.columns.len() == 0 || self.columns.iter().fold(true, |acc, x|acc & x.is_empty())
+    }
+    pub fn to_hex(&self) -> String {
+        //! `to_hex()` returns a String representation of the Relation
+        self.columns.iter().enumerate().map(|x| format!("Col {}: {}", x.0, x.1.to_hex())).collect::<Vec<String>>().join("\n")
+    }
+    pub fn get_col(&self, n:usize) -> &Column {
+        //! `get_col()` takes an index n and returns the n'th Column in the Relation
+        &self.columns[n]
+    }
+    // pub fn get_col_mut(&self, n:usize) -> &mut Column {
+    //     //! `get_col_mut()` takes an index n and returns a mutable to the n'th Column in the Relation
+    //     &self.columns[n]
+    // }
+    pub fn set_col(&mut self, n:usize, v:Column) {
+        //! `set_col()` takes an index n and Column v and replaces the n'th Column in the Relation with v
+    }
+    pub fn xgroup(&mut self) {
+        //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
+        if self.is_empty() {
+            self.x_groups = None
+        } else {
+            self.x_groups = None
+        }
+    }
+}
+
+// # Traits
+//
+// ## From
+impl From<Vec<Column>> for Relation {
+    fn from(columns: Vec<Column>) -> Self {
+        let row_count = columns[0].row_count;
+        assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Column>> for Relation requires all Columns to have same row_count");
+        Relation {
+            row_count,
+            columns,
+            x_groups: Default::default(),
+        }
+    }
+}
+
+impl From<Vec<Vec<u8>>> for Relation {
+    fn from(cols: Vec<Vec<u8>>) -> Self {
+        let columns: Vec<Column> = cols.into_iter().map(|x| Column::from(x)).collect();
+        let row_count = columns[0].row_count;
+        assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Column>> for Relation requires all Columns to have same row_count");
+        Relation {
+            row_count,
+            columns,
+            x_groups: Default::default(),
+        }
+    }
+}
+
+// ## Display
+impl fmt::Display for Relation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = String::new();
+        for j in 0..self.row_count {
+            for c in 0..self.columns.len() {
+                // s.push_str(&format!("{}\n", 4))
+                if self.columns[c].get_bit(j) {
+                    s.push_str("1")
+                } else {
+                    s.push_str("0")
+                };
+            }
+            s.push_str("\n");
+        }
+        write!(f, "{s}")
+    }
+}
+
+// ## Sub
+impl Sub for Relation {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        let mut new_rel = self.clone();
+        for oc in other.columns {
+            // for (i, nc) in new_rel.columns.iter().enumerate() {
+            for i in 0..new_rel.columns.len() {
+                if oc == new_rel.columns[i] {
+                    new_rel.columns.remove(i);
+                    break;
+                }
+            }
+        };
+        new_rel.x_groups = match self.x_groups {
+                None => None,
+                Some(_) => {
+                    new_rel.xgroup();
+                    new_rel.x_groups
+                }
+            };
+        new_rel
+    }
 }
 
 #[cfg(test)]
@@ -187,20 +332,35 @@ mod tests {
 
     #[test]
     fn new_col_is_empty() {
-        let c: Column = Column::new();
-        assert!(c.is_empty());
+        let c0: Column = Column::new();
+        let c1 = Column {
+            row_count: 32,
+            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8]
+        };
+        assert!(c0.is_empty(), "{:?} should not be empty", c0);
+        assert!(!c1.is_empty(), "{:?} should be empty", c1);
     }
 
     #[test]
-    fn prints_hex() {
-        let c = Column::from(vec![0x3000 as u16, 0x000f as u16]);
-        let hex_c = c.to_hex();
+    fn col_from_vec_works() {
+        let c1a = Column::from(vec![0x3000 as u16, 0x000f as u16]);
+        let c1b = Column {
+            row_count: 32,
+            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8]
+        };
+        assert_eq!(c1a, c1b, "{:?} should == {:?}", c1a, c1b)
+    }
+
+    #[test]
+    fn prints_col_to_hex() {
+        let c1 = Column::from(vec![0x3000 as u16, 0x000f as u16]);
+        let res = c1.to_hex();
         let want = "{ 30 00 00 0f }";
-        assert_eq!(hex_c, want, "{} doesn't equal {}", hex_c, want);
+        assert_eq!(res, want, "{} doesn't equal {}", res, want);
     }
 
     #[test]
-    fn sets_and_gets_bit() {
+    fn sets_and_gets_bit_in_col() {
         let mut c = Column::from(vec![0b00000001u8]);
         let mut res = c.get_bit(7);
         let want = true;
@@ -236,5 +396,95 @@ mod tests {
         assert_eq!(res, want, "Column::column_diff of c1 and empty is {} not {} for c1 {:?}", res, want, c1);
         res = c0.column_diff(&c1);
         assert_eq!(res, want, "Column::column_diff of empty and c1 is {} not {} for c1 {:?}", res, want, c1);
+    }
+
+    #[test]
+    fn new_rel_is_empty() {
+        let r0 = Relation::new();
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let r1 = Relation {
+            row_count: 32,
+            columns: vec![c1, c2],
+            x_groups: None
+        };
+        assert!(r0.is_empty(), "{:?} should not be empty", r0);
+        assert!(!r1.is_empty(), "{:?} should be empty", r1);
+    }
+
+    #[test]
+    fn rel_from_col_vec_works() {
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let r1a = Relation::from(vec![c1.clone(), c2.clone()]);
+        let r1b = Relation {
+            row_count: 32,
+            columns: vec![c1, c2],
+            x_groups: Default::default()
+        };
+        assert_eq!(r1a, r1b, "{:?} should == {:?}", r1a, r1b)
+    }
+
+    #[test]
+    fn prints_rel_to_hex() {
+        let r0 = Relation::new();
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let r1 = Relation {
+            row_count: 32,
+            columns: vec![c1.clone(), c2.clone()],
+            x_groups: None
+        };
+        let mut res = r0.to_hex();
+        let mut want = String::new();
+        assert_eq!(res, want, "{} doesn't equal {}", res, want);
+        res = r1.to_hex();
+        want = format!("Col 0: {}\nCol 1: {}", &c1.to_hex(), &c2.to_hex());
+        assert_eq!(res, want, "{} doesn't equal {}", res, want);
+    }
+
+    #[test]
+    fn displays_relation() {
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let r1 = Relation::from(vec![c1.clone(), c2.clone()]);
+        let res = format!("{}", r1);
+        let want = String::from("00\n00\n10\n10\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n10\n10\n10\n10\n");
+        assert_eq!(res, want, "{} should == {} for r1 {:?}", res, want, r1)
+    }
+
+    #[test]
+    fn sets_and_gets_col() {
+        let mut r = Relation::from(vec!(vec![0b00000001u8]));
+        let mut res = r.get_col(0).get_bit(7);
+        let want = true;
+        assert_eq!(res, want, "Gotten bit {} doesn't match {}", res, want);
+        r.columns[0].set_bit(6, true);
+        res = r.columns[0].get_bit(6);
+        assert_eq!(res, want, "Set bit {} doesn't match {}", res, want);
+    }
+
+    #[test]
+    fn sub_works_for_relation() {
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
+        let r1 = Relation::from(vec![c1.clone(), c1.clone(), c2.clone(), c3.clone()]);
+        let r2 = Relation::from(vec![c1.clone(), c2.clone()]);
+        let res = r1.clone() - r2.clone();
+        let want = Relation::from(vec![c1.clone(), c3.clone()]);
+        assert_eq!(res, want, "\nDetail:\n {:?}\n - {:?}\n should be {:?}\n but is    {:?}", r1, r2, want, res)
+    }
+
+    #[test]
+    fn xgroup_works() {
+        // match c {
+        //     None => &self.x_groups,
+        //     Some(col) => match self.x_groups {
+        //         None => &self.x_groups,
+        //         Some(xgs) => &xgs.iter().filter(|&&x|x.max & col == col).collect()
+        //         }
+        // }
+
     }
 }
