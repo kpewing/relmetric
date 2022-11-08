@@ -1,4 +1,4 @@
-use std::{fmt, iter::{zip}, ops::{Sub, BitAnd, BitOr}};
+use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -285,13 +285,14 @@ impl Relation {
         &self.columns[n]
     }
     pub fn set_col(&mut self, n:usize, v:Column) {
-        //! `set_col()` takes an index n and Column v and replaces the n'th Column in the Relation with v, pushing any needed zero columns
+        //! `set_col()` replaces the Relation's n'th Column with v, pushing any needed zero columns, and resets the `x_groups` to None
         assert!(self.row_count == v.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, v.row_count);
         let need_cols = n.checked_sub(self.columns.len()).unwrap_or(0);
         for _ in 0..need_cols {
             self.columns.push(Column::zero(self.row_count));
         };
-        self.columns[n] = v
+        self.columns[n] = v;
+        self.x_groups = None;   // force recalculation next time
     }
     pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
         //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
@@ -343,6 +344,42 @@ impl Relation {
             self.x_groups = Some(res)
         }
         return &self.x_groups
+    }
+    pub fn kappa(&self, max_count: Option<usize>) -> usize {
+        //! `kappa()` returns the `kappa` value for a Relation according to the algorithm in
+        //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
+        //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+        if self.is_empty() {
+            return 0
+        } else {
+            let mut blockcounts: Vec<usize> = self.x_groups.iter().map(|x|x.len()).collect();
+            println!("blockounts:{:?}",blockcounts);
+            blockcounts.sort();
+            println!(" sorted:{:?}",blockcounts);
+            let mut bc_sum = 0;
+            let blocksums: Vec<usize> = blockcounts.iter().map(|x|{ bc_sum = bc_sum + x; bc_sum }).collect();
+            println!("blocksums:{:?}",blocksums);
+            let cap = match max_count {
+                None => self.columns.len(),
+                Some(n) => self.columns.len().max(n)
+            };
+            println!("cap:{:?}",cap);
+            let mut m = 0;
+            if blocksums[0] <= cap {
+                while m <= blocksums.len() && blocksums[m] <= cap {
+                    m = m + 1
+                }
+            }
+            if blocksums.len() == 1 {
+                return 0
+            } else if cap >= self.columns.len() {
+                return blocksums[m-1]
+            } else if blocksums[m] + blockcounts[m] > cap {
+                return blocksums[m-1]
+            } else {
+                return blocksums[m]
+            }
+        }
     }
 }
 
@@ -632,5 +669,38 @@ mod tests {
         };
         want = 1;
         assert_eq!(res, want, "\n\nLength of x_groups {} != {} for\n{:?}", res, want, r1);
+    }
+
+    #[test]
+    fn kappa_works() {
+        let r = Relation::from(vec![
+            Column::from(vec![0x0u8]),
+            Column::from(vec![0x08u8]),
+            Column::from(vec![0x0cu8]),
+            Column::from(vec![0x0cu8]),
+            Column::from(vec![0x02u8]),
+            Column::from(vec![0x02u8]),
+            Column::from(vec![0x01u8]),
+            Column::from(vec![0x01u8]),
+            Column::from(vec![0x01u8]),
+            Column::from(vec![0x01u8]),
+        ]);
+        let ex_4_8 = Relation::from(vec![
+            r.get_col(1).clone(),
+            r.get_col(2).clone(),
+            r.get_col(4).clone(),
+            r.get_col(5).clone(),
+        ]);
+        let ex_4_9 = Relation::from(vec![
+            r.get_col(0).clone(),
+            r.get_col(1).clone(),
+            r.get_col(2).clone(),
+            r.get_col(4).clone(),
+            r.get_col(5).clone(),
+        ]);
+        assert_eq!(ex_4_8.kappa(Some(5)), 0, "Fails E4_8: Kappa(R[2:5],5) = 0");
+        assert_eq!(ex_4_9.kappa(Some(5)), 1, "Fails E4_9: Kappa(R[1:5],5) = 1");
+        assert_eq!(r.kappa(Some(4)), 1, "Fails E4_10: Kappa(R, 4) = 1");
+        assert_eq!(r.kappa(Some(5)), 3, "Fails E4_11: Kappa(R, 5) = 3");
     }
 }
