@@ -397,14 +397,14 @@ impl Relation {
         assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <self> ... execute <self>.xgroup()");
         assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <rel> ... execute <rel>.xgroup()");
 
-        let self_col_count = self.columns.len();
-        let other_col_count = other.columns.len();
+        let rel1_count = self.columns.len();
+        let rel2_count = other.columns.len();
         let delta12_count = (self.clone() - (*other).clone()).len();
         let delta21_count = (other.clone() - (*self).clone()).len();
         let kappa12 = self.kappa(Some(other.columns.len()));
         let kappa21 = other.kappa(Some(self.columns.len()));
 
-        return self_col_count.max(other_col_count) - (self_col_count - delta12_count + kappa12).min(other_col_count - delta21_count + kappa21)
+        return rel1_count.max(rel2_count) - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
 }
 
@@ -462,7 +462,6 @@ impl Sub for Relation {
     fn sub(self, other: Self) -> Self::Output {
         let mut new_rel = self.clone();
         for oc in other.columns {
-            // for (i, nc) in new_rel.columns.iter().enumerate() {
             for i in 0..new_rel.columns.len() {
                 if oc == new_rel.columns[i] {
                     new_rel.columns.remove(i);
@@ -470,13 +469,14 @@ impl Sub for Relation {
                 }
             }
         };
-        new_rel.x_groups = match self.x_groups {
-                None => None,
-                Some(_) => {
-                    new_rel.xgroup();
-                    new_rel.x_groups
-                }
-            };
+        // apply xgroup() if self had it
+        // new_rel.x_groups = match self.x_groups {
+        //         None => None,
+        //         Some(_) => {
+        //             new_rel.xgroup();
+        //             new_rel.x_groups
+        //         }
+        //     };
         new_rel
     }
 }
@@ -698,7 +698,8 @@ mod tests {
 
     #[test]
     fn kappa_works() {
-        let mut r = Relation::from(vec![
+        // "R" of Example 10 in "Metric Comparisons".
+        let mut ex10_r = Relation::from(vec![
             Column::from(vec![0x0u8]),
             Column::from(vec![0x08u8]),
             Column::from(vec![0x0cu8]),
@@ -710,23 +711,87 @@ mod tests {
             Column::from(vec![0x01u8]),
             Column::from(vec![0x01u8]),
         ]);
-        r.xgroup();
-        let mut ex_4_8 = Relation::from(vec![
+        ex10_r.xgroup();
+        // "R3" of Example 12 in "Metric Comparisons".
+        let mut ex12_r3 = Relation::from(vec![
             Column::from(vec![0b1000u8]),
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1100u8]),
         ]);
-        ex_4_8.xgroup();
-        assert_eq!(ex_4_8.kappa(Some(5)), 0, "Fails E4_8: Kappa(R[2:5],5) = 0");
-        let mut ex_4_9 = Relation::from(vec![
+        ex12_r3.xgroup();
+        // "R4" of Example 13 in "Metric Comparisons".
+        let mut ex13_r4 = Relation::from(vec![
             Column::from(vec![0b0000u8]),
             Column::from(vec![0b1000u8]),
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1100u8]),
         ]);
-        ex_4_9.xgroup();
-        assert_eq!(ex_4_9.kappa(Some(5)), 1, "Fails E4_9: Kappa(R[1:5],5) = 1");
-        assert_eq!(r.kappa(Some(4)), 1, "Fails E4_10: Kappa(R, 4) = 1");
-        assert_eq!(r.kappa(Some(5)), 3, "Fails E4_11: Kappa(R, 5) = 3");
+        ex13_r4.xgroup();
+        assert_eq!(ex12_r3.kappa(Some(5)), 0, "Fails Example 12: kappa(R3, N=5) => 0");
+        assert_eq!(ex13_r4.kappa(Some(5)), 1, "Fails Example 13: kappa(R4, N=5) => 1");
+        assert_eq!(ex10_r.kappa(Some(4)), 1, "Fails Example 14: kappa(R, N=4) => 1");
+        assert_eq!(ex10_r.kappa(Some(5)), 3, "Fails Example 15: kappa(R, N=5) => 3");
+    }
+
+    #[test]
+    fn rel_dist_bound_works() {
+        // "R1" of Example 18 in "Metric Comparisons".
+        let mut ex18_r1 = Relation::from(vec![
+            Column::from(vec![0b10111u8]),
+            Column::from(vec![0b01111u8]),
+            Column::from(vec![0b10111u8]),
+            Column::from(vec![0b11001u8]),
+            Column::from(vec![0b00111u8]),
+            Column::from(vec![0b00000u8]),
+            Column::from(vec![0b10001u8]),
+            Column::from(vec![0b11001u8]),
+            Column::from(vec![0b01001u8]),
+            Column::from(vec![0b11101u8]),
+        ]);
+        ex18_r1.xgroup();
+        // "R2" of Example 18 in "Metric Comparisons".
+        let mut ex18_r2 = Relation::from(vec![
+            Column::from(vec![0b00100u8]),
+            Column::from(vec![0b00010u8]),
+            Column::from(vec![0b11100u8]),
+            Column::from(vec![0b11110u8]),
+            Column::from(vec![0b01000u8]),
+            Column::from(vec![0b11101u8]),
+            Column::from(vec![0b10100u8]),
+            Column::from(vec![0b11010u8]),
+            Column::from(vec![0b01111u8]),
+            Column::from(vec![0b10101u8]),
+        ]);
+        ex18_r2.xgroup();
+        // "R1" of Example 19 in "Metric Comparisons".
+        let mut ex19_r1 = Relation::from(vec![
+            Column::from(vec![0b00000u8]),
+            Column::from(vec![0b00101u8]),
+            Column::from(vec![0b11000u8]),
+            Column::from(vec![0b00100u8]),
+            Column::from(vec![0b01000u8]),
+            Column::from(vec![0b10000u8]),
+            Column::from(vec![0b00101u8]),
+            Column::from(vec![0b00000u8]),
+            Column::from(vec![0b00100u8]),
+            Column::from(vec![0b11000u8]),
+        ]);
+        ex19_r1.xgroup();
+        // "R2" of Example 19 in "Metric Comparisons".
+        let mut ex19_r2 = Relation::from(vec![
+            Column::from(vec![0b00000u8]),
+            Column::from(vec![0b00101u8]),
+            Column::from(vec![0b11000u8]),
+            Column::from(vec![0b01100u8]),
+            Column::from(vec![0b01000u8]),
+            Column::from(vec![0b10000u8]),
+            Column::from(vec![0b00001u8]),
+            Column::from(vec![0b00001u8]),
+            Column::from(vec![0b00100u8]),
+            Column::from(vec![0b10010u8]),
+        ]);
+        ex19_r2.xgroup();
+        assert_eq!(ex18_r1.rel_dist_bound(&ex18_r2), 9, "Fails Example 18: rel_dist_bound(R1,R2) => 9");
+        assert_eq!(ex19_r1.rel_dist_bound(&ex19_r2), 2, "Fails Example 19:  rel_dist_bound(R1,R2) => 2");
     }
 }
