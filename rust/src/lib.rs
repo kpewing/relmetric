@@ -388,6 +388,24 @@ impl Relation {
             }
         }
     }
+
+    pub fn rel_dist_bound(&self, other: &Relation) -> usize {
+        //! `rel_dist_bound()` returns the bound on the Relation metric in
+        //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
+        //! Panics if self.x_groups == None: execute [`<Relation>.xgroup()`] first.
+        //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+        assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <self> ... execute <self>.xgroup()");
+        assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <rel> ... execute <rel>.xgroup()");
+
+        let self_col_count = self.columns.len();
+        let other_col_count = other.columns.len();
+        let delta12_count = (self.clone() - (*other).clone()).len();
+        let delta21_count = (other.clone() - (*self).clone()).len();
+        let kappa12 = self.kappa(Some(other.columns.len()));
+        let kappa21 = other.kappa(Some(self.columns.len()));
+
+        return self_col_count.max(other_col_count) - (self_col_count - delta12_count + kappa12).min(other_col_count - delta21_count + kappa21)
+    }
 }
 
 // # Traits
