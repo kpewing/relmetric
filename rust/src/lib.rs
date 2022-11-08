@@ -268,22 +268,27 @@ impl Relation {
         //! `new()` takes no arguments and returns an empty Relation
         Default::default()
     }
+
     pub fn len(&self) -> usize {
         //! `len()` returns the number of Columns in the Relation
         self.columns.len()
     }
+
     pub fn is_empty(&self) -> bool {
         //! `is_empty()` returns whether the Relation is empty
         self.columns.len() == 0 || self.columns.iter().fold(true, |acc, x|acc & x.is_empty())
     }
+
     pub fn to_hex(&self) -> String {
         //! `to_hex()` returns a String representation of the Relation
         self.columns.iter().enumerate().map(|x| format!("Col {}: {}", x.0, x.1.to_hex())).collect::<Vec<String>>().join("\n")
     }
+
     pub fn get_col(&self, n:usize) -> &Column {
         //! `get_col()` takes an index n and returns the n'th Column in the Relation
         &self.columns[n]
     }
+
     pub fn set_col(&mut self, n:usize, v:Column) {
         //! `set_col()` replaces the Relation's n'th Column with v, pushing any needed zero columns, and resets the `x_groups` to None
         assert!(self.row_count == v.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, v.row_count);
@@ -294,8 +299,9 @@ impl Relation {
         self.columns[n] = v;
         self.x_groups = None;   // force recalculation next time
     }
+
     pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
-        //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
+        //! `xgroup()` sets and returns the Relation's `x_groups` field to represent its partition into `XGroup`s
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
@@ -345,39 +351,40 @@ impl Relation {
         }
         return &self.x_groups
     }
+
     pub fn kappa(&self, max_count: Option<usize>) -> usize {
         //! `kappa()` returns the `kappa` value for a Relation according to the algorithm in
         //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
+        //! Panics if self.x_groups == None: execute [`<Relation>.xgroup()`] first.
         //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
             return 0
         } else {
-            let mut blockcounts: Vec<usize> = self.x_groups.iter().map(|x|x.len()).collect();
-            println!("blockounts:{:?}",blockcounts);
+            assert_ne!(self.x_groups, None, "Relation::kappa() requires x_groups ... execute <Relation>.xgroup() first");
+
+            let xgs: &Vec<XGroup> = self.x_groups.as_ref().unwrap();
+            let mut blockcounts: Vec<usize> = xgs.iter().map(|x|x.col_indices.len()).collect();
             blockcounts.sort();
-            println!(" sorted:{:?}",blockcounts);
             let mut bc_sum = 0;
             let blocksums: Vec<usize> = blockcounts.iter().map(|x|{ bc_sum = bc_sum + x; bc_sum }).collect();
-            println!("blocksums:{:?}",blocksums);
             let cap = match max_count {
                 None => self.columns.len(),
-                Some(n) => self.columns.len().max(n)
+                Some(n) => self.columns.len().min(n)
             };
-            println!("cap:{:?}",cap);
             let mut m = 0;
             if blocksums[0] <= cap {
-                while m <= blocksums.len() && blocksums[m] <= cap {
+                while m < blocksums.len() && blocksums[m] <= cap {
                     m = m + 1
                 }
             }
             if blocksums.len() == 1 {
                 return 0
             } else if cap >= self.columns.len() {
-                return blocksums[m-1]
-            } else if blocksums[m] + blockcounts[m] > cap {
-                return blocksums[m-1]
+                return blocksums[m - 2]
+            } else if blocksums[m - 1] + blockcounts[m - 1] > cap {
+                return blocksums[m - 2]
             } else {
-                return blocksums[m]
+                return blocksums[m - 1]
             }
         }
     }
@@ -673,7 +680,7 @@ mod tests {
 
     #[test]
     fn kappa_works() {
-        let r = Relation::from(vec![
+        let mut r = Relation::from(vec![
             Column::from(vec![0x0u8]),
             Column::from(vec![0x08u8]),
             Column::from(vec![0x0cu8]),
@@ -685,20 +692,21 @@ mod tests {
             Column::from(vec![0x01u8]),
             Column::from(vec![0x01u8]),
         ]);
-        let ex_4_8 = Relation::from(vec![
-            r.get_col(1).clone(),
-            r.get_col(2).clone(),
-            r.get_col(4).clone(),
-            r.get_col(5).clone(),
+        r.xgroup();
+        let mut ex_4_8 = Relation::from(vec![
+            Column::from(vec![0b1000u8]),
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1100u8]),
         ]);
-        let ex_4_9 = Relation::from(vec![
-            r.get_col(0).clone(),
-            r.get_col(1).clone(),
-            r.get_col(2).clone(),
-            r.get_col(4).clone(),
-            r.get_col(5).clone(),
-        ]);
+        ex_4_8.xgroup();
         assert_eq!(ex_4_8.kappa(Some(5)), 0, "Fails E4_8: Kappa(R[2:5],5) = 0");
+        let mut ex_4_9 = Relation::from(vec![
+            Column::from(vec![0b0000u8]),
+            Column::from(vec![0b1000u8]),
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1100u8]),
+        ]);
+        ex_4_9.xgroup();
         assert_eq!(ex_4_9.kappa(Some(5)), 1, "Fails E4_9: Kappa(R[1:5],5) = 1");
         assert_eq!(r.kappa(Some(4)), 1, "Fails E4_10: Kappa(R, 4) = 1");
         assert_eq!(r.kappa(Some(5)), 3, "Fails E4_11: Kappa(R, 5) = 3");
