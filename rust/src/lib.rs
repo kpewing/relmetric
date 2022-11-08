@@ -208,17 +208,15 @@ impl BitAnd for Column {
     type Output = Self;
 
     fn bitand(self, rhs: Self) -> Self::Output {
-        let mut res;
         if self.is_empty() {
-            res = rhs.clone()
+            return rhs.clone()
         } else if rhs.is_empty() {
-            res = self.clone()
+            return self.clone()
         } else {
             assert!(self.row_count == rhs.row_count, "Column::bitand requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
             assert!(self.bit_field.len() == rhs.bit_field.len(), "Column::bitand requires non-empty Columns to have equal length bit fields but: {} != {}", self.bit_field.len(), rhs.bit_field.len());
-            res = Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s & r).collect::<Vec<u8>>());
+            return Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s & r).collect::<Vec<u8>>())
         }
-        return res
     }
 }
 
@@ -226,17 +224,15 @@ impl BitOr for Column {
     type Output = Self;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        let mut res;
         if self.is_empty() {
-            res = rhs.clone()
+            return rhs.clone()
         } else if rhs.is_empty() {
-            res = self.clone()
+            return self.clone()
         } else {
             assert!(self.row_count == rhs.row_count, "Column::bitor requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
             assert!(self.bit_field.len() == rhs.bit_field.len(), "Column::bitor requires non-empty Columns to have equal length bit fields but: {} != {}", self.bit_field.len(), rhs.bit_field.len());
-            res = Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s | r).collect::<Vec<u8>>());
+            return Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s | r).collect::<Vec<u8>>());
         }
-        return res
     }
 }
 
@@ -299,35 +295,35 @@ impl Relation {
     }
     pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
         //! `xgroup()` sets the Relation's `x_groups` field to represent its partition into `XGroup`s
+        // Checks all columns v. all groups:
+        // - for each `columns[i]` first check overlap with all groups `res[j]`
+        // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
+        // -- if no overlaps, then create a new group `res[_]
+        // - repeat checking for remaining `columns[i+1..]`
         if self.is_empty() {
             self.x_groups = None
         } else {
-            let mut zero_grp = XGroup {
-                max: Column::zero(self.row_count),
-                col_indices: vec![]
-            };
-            let mut res = vec![zero_grp];
-            for i in 0..self.columns.len() {
-                let mut col = &self.columns[i];
-                let mut isdisjnt = false;
-                // -- check col v. all groups
+            let mut res: Vec<XGroup> = vec![XGroup { max: self.columns[0].clone(), col_indices: vec![0]}];
+            for i in 1..self.columns.len() {
+                let col = &self.columns[i];
+                let mut new_group = true;
+                let mut expanded: Option<usize> = None;
                 for j in 0..res.len() {
-                    let mut expanded: Option<usize> = None;
                     match expanded {
-                        // -- haven't yet found an overlapping res[j] to expand: this one?
+                        // -- haven't yet found an overlapping group res[j] to expand: this one?
                         None => {
-                            isdisjnt = res[j].max.is_disjoint(&col);
+                            let isdisjnt = res[j].max.is_disjoint(&col);
                             if !isdisjnt {
                                 // expand res[j] and save the index
                                 res[j].col_indices.push(i);
                                 res[j].max = res[j].max.clone() | (*col).clone();
                                 expanded = Some(j);
-                                break
+                                new_group = false;
                             }
                         }
-                        // -- expanded res[idx]: combine with any others?
+                        // -- have expanded group res[idx]: combine it with any other groups?
                         Some(idx) => {
-                            isdisjnt = res[idx].max.is_disjoint(&res[j].max);
+                            let isdisjnt = res[idx].max.is_disjoint(&res[j].max);
                             if !isdisjnt {
                                 // drain this res[j]'s col_indices
                                 let mut resj_indices: Vec<usize> = res[j].col_indices.drain(..).collect();
@@ -338,10 +334,10 @@ impl Relation {
                             }
                         }
                     }
-                    // -- disjoint from all groups: create a new group for col
-                    if isdisjnt {
-                        res.push(XGroup { max: col.clone(), col_indices: vec![i] })
-                    }
+                }
+                // -- disjoint from all groups: create a new group for col
+                if new_group {
+                    res.push(XGroup { max: col.clone(), col_indices: vec![i] });
                 }
             }
             self.x_groups = Some(res)
@@ -616,12 +612,25 @@ mod tests {
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
-        let mut r1 = Relation::from(vec![c1.clone(), c1, c2, c3]);
-        let res = match r1.xgroup() {
+        let mut r1 = Relation::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
+        let mut res = match r1.xgroup() {
             None => 0,
             Some(xgs) => xgs.len(),
         };
-        let want = 2;
-        assert_eq!(res, want, "\n\nLength of x_groups {} != {} for {:?}", res, want, r1);
+        let mut want = 2;
+        assert_eq!(res, want, "\n\nLength of x_groups {} != {} for\n{:?}", res, want, r1);
+        r1.set_col(2, c2.clone());
+        res = match r1.xgroup() {
+            None => 0,
+            Some(xgs) => xgs.len(),
+        };
+        assert_eq!(res, want, "\n\nLength of x_groups {} != {} for\n{:?}", res, want, r1);
+        r1.set_col(2, c3.clone());
+        res = match r1.xgroup() {
+            None => 0,
+            Some(xgs) => xgs.len(),
+        };
+        want = 1;
+        assert_eq!(res, want, "\n\nLength of x_groups {} != {} for\n{:?}", res, want, r1);
     }
 }
