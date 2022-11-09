@@ -118,24 +118,38 @@ impl Column {
 
     pub fn column_diff(&self, other: &Column) -> u32 {
         //! `column_diff` counts the differences of two Columns
-        //! Panics if the Columns have different row_count or bit_field lengths.
+        //! Panics if non-empty Columns have different `row_count`s or `bit_field` lengths.
+        const REST_MASK: [u8; 8] = [0b00000000u8, 0b10000000u8, 0b11000000u8, 0b11100000u8, 0b11110000u8, 0b11111000u8, 0b11111100u8, 0b11111110u8];
         let mut res;
-        if self.is_empty() {
-            res = other.bit_field.iter().fold(0, |acc, x| acc + x.count_ones());
-        } else if other.is_empty() {
-            res = self.bit_field.iter().fold(0, |acc, x| acc + x.count_ones());
+        let mut whole_ints = self.row_count / u8::BITS as usize;
+        let mut rest_bits = self.row_count % u8::BITS as usize;
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        if self_empty && other_empty {
+            println!("both _empty");
+            res = 0
+        } else if self_empty {
+            println!("self_empty");
+            whole_ints = other.row_count / u8::BITS as usize;
+            rest_bits = other.row_count % u8::BITS as usize;
+            res = other.bit_field.iter().take(whole_ints).fold(0, |acc, x| acc + x.count_ones());
+            if rest_bits > 0 {
+                res = res + (other.bit_field[whole_ints] & REST_MASK[rest_bits]).count_ones();
+            }
+        } else if other_empty {
+            println!("other_empty");
+            res = self.bit_field.iter().take(whole_ints).fold(0, |acc, x| acc + x.count_ones());
+            if rest_bits > 0 {
+                res = res + (self.bit_field[whole_ints] & REST_MASK[rest_bits]).count_ones();
+            }
         } else {
+            println!("both not empty");
             assert_eq!(self.row_count, other.row_count, "Column::column_diff requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, other.row_count);
             assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::column_diff requires non-empty Columns to have equal bit_field lengths but: {} != {}", self.bit_field.len(), other.bit_field.len());
-            let whole_ints = &self.row_count / u8::BITS as usize;
-            let rest_bits = &self.row_count % u8::BITS as usize;
-            const REST_MASK: [u8; 8] = [0b10000000u8, 0b11000000u8, 0b11100000u8, 0b11110000u8, 0b11111000u8, 0b11111100u8, 0b11111110u8, 0b11111111u8];
-            let zipped = zip(&self.bit_field, &other.bit_field);
-            res = zipped.take(whole_ints).fold(0, |acc, x| acc + (x.0 & x.1).count_ones());
+            res = zip(&self.bit_field, &other.bit_field).take(whole_ints).fold(0, |acc, x| acc + (x.0 ^ x.1).count_ones());
             if rest_bits > 0 {
-                res = res + (self.bit_field[whole_ints + 1] & other.bit_field[whole_ints + 1] & REST_MASK[rest_bits]).count_ones()
+                res = res + (self.bit_field[whole_ints] ^ other.bit_field[whole_ints] & REST_MASK[rest_bits]).count_ones()
             };
-            // res = zipped.enumerate().fold(0, |acc, x| if x.0 < whole_ints {acc + (x.1.0 & x.1.1).count_ones()} else {if x.0 == whole_ints && rest_bits > 0 {acc + (x.1.0 & x.1.1 & REST_MASK[rest_bits]).count_ones()} else {acc}});
         }
         return res
     }
@@ -284,6 +298,11 @@ impl<'a> Relation<'a> {
         };
         self.columns[n] = v;
         self.x_groups = None;   // force recalculation next time
+    }
+
+    pub fn match_columns(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
+        //! `match_columns(self, other)` compares two specified Columns between Relations
+        self.columns[col1].column_diff(&other.columns[col2])
     }
 
     pub fn xgroup(&self) -> Option<Vec<XGroup>> {
@@ -650,12 +669,26 @@ mod tests {
     #[test]
     fn column_diff_works() {
         let c0 = Column::new();
+        let zero23 = Column::zero(23);
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        let mut res = c1.column_diff(&c0);
         let want = 0x3000u16.count_ones() + 0x000fu16.count_ones();
-        assert_eq!(res, want, "Column::column_diff of c1 and empty is {} not {} for c1 {:?}", res, want, c1);
+        let mut res = c0.column_diff(&c0);
+        assert_eq!(res, 0, "\nempty.column_diff(empty) expected 0 but got {} for c0 {:?}", res, c0);
+        res = zero23.column_diff(&c0);
+        assert_eq!(res, 0, "\nzero.column_diff(empty) expected 0 but got {} for zero23 {:?}", res, zero23);
+        res = c1.column_diff(&c0);
+        assert_eq!(res, want, "\nc1.column_diff(empty) expected {} but got {} for c1 {:?}", want, res, c1);
         res = c0.column_diff(&c1);
-        assert_eq!(res, want, "Column::column_diff of empty and c1 is {} not {} for c1 {:?}", res, want, c1);
+        assert_eq!(res, want, "\nempty.column_diff(c1) expected {} but got {} for c1 {:?}", want, res, c1);
+
+        let r1_0 = Column::from(vec![0b1000u8]);
+        let r1_1 = Column::from(vec![0b1001u8]);
+        let r2_0 = Column::from(vec![0b0000u8]);
+        let r2_1 = Column::from(vec![0b1000u8]);
+        assert_eq!(r1_0.column_diff(&r2_0), 1, "\nr1_0 {} v. r2_0 {} expected {}", r1_0, r2_0, 1);
+        assert_eq!(r1_0.column_diff(&r2_1), 0, "\nr1_0 {} v. r2_1 {} expected {}", r1_0, r2_0, 0);
+        assert_eq!(r1_1.column_diff(&r2_0), 2, "\nr1_1 {} v. r2_0 {} expected {}", r1_0, r2_0, 2);
+        assert_eq!(r1_1.column_diff(&r2_1), 1, "\nr1_1 {} v. r2_1 {} expected {}", r1_0, r2_0, 1);
     }
 
     #[test]
@@ -893,4 +926,40 @@ mod tests {
         assert_eq!(ex18_r1.rel_dist_bound(&ex18_r2), 8, "Fails Example 18 (corrected): rel_dist_bound(R1,R2) => 8");
         assert_eq!(ex19_r1.rel_dist_bound(&ex19_r2), 2, "Fails Example 19:  rel_dist_bound(R1,R2) => 2");
     }
+
+    #[test]
+    fn match_columns_works() {
+        let r1 = Relation::from(vec![
+            Column::from(vec![0b1000u8]),
+            Column::from(vec![0b1001u8]),
+        ]);
+        let r2 = Relation::from(vec![
+            Column::from(vec![0b0000u8]),
+            Column::from(vec![0b1000u8]),
+        ]);
+        assert_eq!(r1.match_columns(&r2, 0, 0), 1, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 1", 0, r1, 0, r2);
+        assert_eq!(r1.match_columns(&r2, 0, 1), 0, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 0", 0, r1, 1, r2);
+        assert_eq!(r1.match_columns(&r2, 1, 0), 2, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 2", 1, r1, 0, r2);
+    }
+
+    #[test]
+    fn weight_works() {
+
+    }
+
+    #[test]
+    fn matches_works() {
+
+    }
+
+    #[test]
+    fn min_weight_works() {
+
+    }
+
+    #[test]
+    fn relmetric_works() {
+
+    }
+
 }
