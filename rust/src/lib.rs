@@ -1,4 +1,4 @@
-use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr}};
+use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr, Index}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -243,28 +243,14 @@ impl BitOr for Column {
 //
 // The default Relation is empty, with `row_count` == 0 and empty collection of Columns.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Relation {
+pub struct Relation<'a> {
     pub row_count: usize,
     pub columns: Vec<Column>,
-    x_groups: Option<Vec<XGroup>>,
+    x_groups: Option<XGrouping<'a>>,
 }
 
-// Represents indices of the Columns in a Relation that overlap by rows
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct XGroup {
-    pub max: Column,
-    pub col_indices: Vec<usize>,
-}
-
-impl XGroup {
-    pub fn new() -> XGroup {
-        //! `new()` takes no arguments and returns an empty XGroup
-        Default::default()
-    }
-}
-
-impl Relation {
-    pub fn new() -> Relation {
+impl<'a> Relation<'a> {
+    pub fn new() -> Relation<'a> {
         //! `new()` takes no arguments and returns an empty Relation
         Default::default()
     }
@@ -300,15 +286,15 @@ impl Relation {
         self.x_groups = None;   // force recalculation next time
     }
 
-    pub fn xgroup(&mut self) -> &Option<Vec<XGroup>> {
-        //! `xgroup()` sets and returns the Relation's `x_groups` field to represent its partition into `XGroup`s
+    pub fn xgroup(&self) -> Option<Vec<XGroup>> {
+        //! `xgroup()` optionally returns a partition of the Relation's Columns as a vector of `XGroup`s
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
         // -- if no overlaps, then create a new group `res[_]
         // - repeat checking for remaining `columns[i+1..]`
         if self.is_empty() {
-            self.x_groups = None
+            return None
         } else {
             let mut res: Vec<XGroup> = vec![XGroup { max: self.columns[0].clone(), col_indices: vec![0]}];
             for i in 1..self.columns.len() {
@@ -347,22 +333,23 @@ impl Relation {
                     res.push(XGroup { max: col.clone(), col_indices: vec![i] });
                 }
             }
-            self.x_groups = Some(res)
+            res.sort_unstable_by(|a,b|a.col_indices.len().cmp(&b.col_indices.len()));
+            return Some(res)
         }
-        return &self.x_groups
     }
 
     pub fn kappa(&self, max_count: Option<usize>) -> usize {
         //! `kappa()` returns the `kappa` value for a Relation according to the algorithm in
         //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
-        //! Panics if self.x_groups == None: execute [`<Relation>.xgroup()`] first.
+        //!
         //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
             return 0
         } else {
-            assert_ne!(self.x_groups, None, "Relation::kappa() requires x_groups ... execute <Relation>.xgroup() first");
-
-            let xgs: &Vec<XGroup> = self.x_groups.as_ref().unwrap();
+            let xgs = match self.xgroup() {
+                None => panic!("Relation::kappa() requires XGrouping but xgroup() generated None"),
+                Some(x) => x
+            };
             let mut blockcounts: Vec<usize> = xgs.iter().map(|x|x.col_indices.len()).collect();
             blockcounts.sort();
             let mut bc_sum = 0;
@@ -372,6 +359,7 @@ impl Relation {
                 Some(n) => self.columns.len().min(n)
             };
             let mut m = 0;
+
             if blocksums[0] <= cap {
                 while m < blocksums.len() && blocksums[m] <= cap {
                     m = m + 1
@@ -392,17 +380,25 @@ impl Relation {
     pub fn rel_dist_bound(&self, other: &Relation) -> usize {
         //! `rel_dist_bound()` returns the bound on the Relation metric in
         //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
-        //! Panics if self.x_groups == None: execute [`<Relation>.xgroup()`] first.
         //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
-        assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <self> ... execute <self>.xgroup()");
-        assert_ne!(self.x_groups, None, "Relation::rel_dist_bound() missing x_groups in <rel> ... execute <rel>.xgroup()");
+
+        println!("rel1:\n{}\n", self);
+        println!("rel2:\n{}\n", other);
 
         let rel1_count = self.columns.len();
         let rel2_count = other.columns.len();
-        let delta12_count = (self.clone() - (*other).clone()).len();
-        let delta21_count = (other.clone() - (*self).clone()).len();
-        let kappa12 = self.kappa(Some(other.columns.len()));
-        let kappa21 = other.kappa(Some(self.columns.len()));
+        let delta12 = self.clone() - (*other).clone();
+        let delta21 = other.clone() - (*self).clone();
+
+        println!("delta12:\n{}\n", delta12);
+        println!("delta21:\n{}\n", delta21);
+
+        let delta12_count = delta12.len();
+        let delta21_count = delta21.len();
+        let kappa12 = delta12.kappa(Some(delta21_count));
+        let kappa21 = delta21.kappa(Some(delta12_count));
+
+        println!("rel_dist_bound = max({}, {}) - min({} - {} + {}, {} - {} + {})", rel1_count, rel2_count, rel1_count, delta12_count, kappa12, rel2_count, delta12_count, kappa21);
 
         return rel1_count.max(rel2_count) - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
@@ -411,7 +407,7 @@ impl Relation {
 // # Traits
 //
 // ## From
-impl From<Vec<Column>> for Relation {
+impl From<Vec<Column>> for Relation<'_> {
     fn from(columns: Vec<Column>) -> Self {
         let row_count = columns[0].row_count;
         assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Column>> for Relation requires all Columns to have same row_count");
@@ -423,7 +419,7 @@ impl From<Vec<Column>> for Relation {
     }
 }
 
-impl From<Vec<Vec<u8>>> for Relation {
+impl From<Vec<Vec<u8>>> for Relation<'_> {
     fn from(cols: Vec<Vec<u8>>) -> Self {
         let columns: Vec<Column> = cols.into_iter().map(|x| Column::from(x)).collect();
         let row_count = columns[0].row_count;
@@ -437,7 +433,7 @@ impl From<Vec<Vec<u8>>> for Relation {
 }
 
 // ## Display
-impl fmt::Display for Relation {
+impl fmt::Display for Relation<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
         for j in 0..self.row_count {
@@ -448,6 +444,7 @@ impl fmt::Display for Relation {
                 } else {
                     s.push_str("0")
                 };
+                // s.push_str(" ");
             }
             s.push_str("\n");
         }
@@ -456,7 +453,7 @@ impl fmt::Display for Relation {
 }
 
 // ## Sub
-impl Sub for Relation {
+impl Sub for Relation<'_> {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
@@ -469,15 +466,95 @@ impl Sub for Relation {
                 }
             }
         };
-        // apply xgroup() if self had it
-        // new_rel.x_groups = match self.x_groups {
-        //         None => None,
-        //         Some(_) => {
-        //             new_rel.xgroup();
-        //             new_rel.x_groups
-        //         }
-        //     };
         new_rel
+    }
+}
+
+// Represents an XGrouping
+//
+// The `XGrouping` of a `Relation` represents the partition of the Relation's Columns by row-overlap. The field `relation` refers to the `Relation`, whose lifetime it shares. The field `partition` collects the individual partitions as `XGroup`s.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct XGrouping<'a> {
+    relation: &'a Relation<'a>,
+    pub partition: Vec<XGroup>,
+}
+
+impl XGrouping<'_> {
+    pub fn new<'a>(rel: &'a Relation) -> Option<XGrouping<'a>> {
+        //! `new(rel)` takes a reference to Relation and optionally returns its `Xgrouping` calculated by [`Relation::xgroup()`]
+        match rel.xgroup() {
+            None => None,
+            Some(xgs) =>
+                Some(XGrouping { relation: &rel, partition: xgs })
+        }
+    }
+}
+
+// impl Index<usize> for XGrouping<'_> {
+//     type Output = &XGroup;
+
+//     fn index(&self, idx: usize) -> Self::Output {
+//         &self.partition[idx]
+//     }
+// }
+
+impl fmt::Display for XGrouping<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rel = self.relation;
+        let xgs = &self.partition;
+        let mut s = String::new();
+
+        if self.partition.len() > 0 {
+            for r in 0..rel.row_count {
+                for c in 0..xgs[0].col_indices.len() {
+                    if rel.columns[xgs[0].col_indices[c]].get_bit(r) {
+                        s.push_str("1")
+                    } else {
+                        s.push_str("0")
+                    };
+                }
+                for g in 1..xgs.len() {
+                    if rel.columns[xgs[g].col_indices[0]].get_bit(r) {
+                        s.push_str(" 1")
+                    } else {
+                        s.push_str(" 0")
+                    };
+                    for c in 1..xgs[g].col_indices.len() {
+                        if rel.columns[xgs[g].col_indices[c]].get_bit(r) {
+                            s.push_str("1")
+                        } else {
+                            s.push_str("0")
+                        };
+                    }
+                };
+                s.push_str("\n");
+            }
+        };
+        write!(f, "{s}")
+    }
+}
+
+// Represents an XGroup
+//
+// Each partition is an `XGroup` collecting Columns sharing a relation (`true`) for some row with at least one other member. , but not with any other Columns in the Relation.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct XGroup {
+    pub max: Column,
+    pub col_indices: Vec<usize>,
+}
+
+impl XGroup {
+    pub fn new() -> XGroup {
+        //! `new()` creates an empty XGroup
+        Default::default()
+    }
+}
+
+impl Index<usize> for XGroup {
+    type Output = usize;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.col_indices[idx]
     }
 }
 
@@ -557,7 +634,7 @@ mod tests {
     fn col_is_disjoint_works() {
         let empty = Column::new();
         let zero = Column::zero(16);
-        let c1 = Column::from(vec![0b10000000u8, 0b00000001u8]);
+        let c1 = Column::from(vec![0b10000000u8,0b00000001u8]);
         let c2 = Column::from(vec![0b00000001u8,0b10000000u8]);
         let c3 = Column::from(vec![0b10000001u8,0b10000000u8]);
         assert!(!empty.is_disjoint(&empty), "Fails to see that empties are NOT disjoint:\n left: {:?}\nright: {:?}", empty, empty);
@@ -697,9 +774,38 @@ mod tests {
     }
 
     #[test]
+    fn displays_xgrouping() {
+        let r = Relation::from(vec![
+            Column::from(vec![0b0000u8]),
+            Column::from(vec![0b1000u8]),
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b0010u8]),
+            Column::from(vec![0b0010u8]),
+            Column::from(vec![0b0001u8]),
+            Column::from(vec![0b0001u8]),
+            Column::from(vec![0b0001u8]),
+            Column::from(vec![0b0001u8]),
+        ]);
+        let xgs = r.xgroup().unwrap();
+        let x_grouping = XGrouping::new(&r).unwrap();
+        let res = format!("{}", x_grouping);
+        let want = r#"0 00 000 0000
+0 00 000 0000
+0 00 000 0000
+0 00 000 0000
+0 00 111 0000
+0 00 011 0000
+0 11 000 0000
+0 00 000 1111
+"#;
+        assert_eq!(res, want, "r:\n{}\nx_grouping:\n{}\nxgs:\n{:?}\n", r, x_grouping, xgs)
+    }
+
+    #[test]
     fn kappa_works() {
         // "R" of Example 10 in "Metric Comparisons".
-        let mut ex10_r = Relation::from(vec![
+        let ex10_r = Relation::from(vec![
             Column::from(vec![0x0u8]),
             Column::from(vec![0x08u8]),
             Column::from(vec![0x0cu8]),
@@ -711,22 +817,19 @@ mod tests {
             Column::from(vec![0x01u8]),
             Column::from(vec![0x01u8]),
         ]);
-        ex10_r.xgroup();
         // "R3" of Example 12 in "Metric Comparisons".
-        let mut ex12_r3 = Relation::from(vec![
+        let ex12_r3 = Relation::from(vec![
             Column::from(vec![0b1000u8]),
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1100u8]),
         ]);
-        ex12_r3.xgroup();
         // "R4" of Example 13 in "Metric Comparisons".
-        let mut ex13_r4 = Relation::from(vec![
+        let ex13_r4 = Relation::from(vec![
             Column::from(vec![0b0000u8]),
             Column::from(vec![0b1000u8]),
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1100u8]),
         ]);
-        ex13_r4.xgroup();
         assert_eq!(ex12_r3.kappa(Some(5)), 0, "Fails Example 12: kappa(R3, N=5) => 0");
         assert_eq!(ex13_r4.kappa(Some(5)), 1, "Fails Example 13: kappa(R4, N=5) => 1");
         assert_eq!(ex10_r.kappa(Some(4)), 1, "Fails Example 14: kappa(R, N=4) => 1");
@@ -736,7 +839,7 @@ mod tests {
     #[test]
     fn rel_dist_bound_works() {
         // "R1" of Example 18 in "Metric Comparisons".
-        let mut ex18_r1 = Relation::from(vec![
+        let ex18_r1 = Relation::from(vec![
             Column::from(vec![0b10111u8]),
             Column::from(vec![0b01111u8]),
             Column::from(vec![0b10111u8]),
@@ -748,9 +851,8 @@ mod tests {
             Column::from(vec![0b01001u8]),
             Column::from(vec![0b11101u8]),
         ]);
-        ex18_r1.xgroup();
         // "R2" of Example 18 in "Metric Comparisons".
-        let mut ex18_r2 = Relation::from(vec![
+        let ex18_r2 = Relation::from(vec![
             Column::from(vec![0b00100u8]),
             Column::from(vec![0b00010u8]),
             Column::from(vec![0b11100u8]),
@@ -762,9 +864,8 @@ mod tests {
             Column::from(vec![0b01111u8]),
             Column::from(vec![0b10101u8]),
         ]);
-        ex18_r2.xgroup();
         // "R1" of Example 19 in "Metric Comparisons".
-        let mut ex19_r1 = Relation::from(vec![
+        let ex19_r1 = Relation::from(vec![
             Column::from(vec![0b00000u8]),
             Column::from(vec![0b00101u8]),
             Column::from(vec![0b11000u8]),
@@ -776,9 +877,8 @@ mod tests {
             Column::from(vec![0b00100u8]),
             Column::from(vec![0b11000u8]),
         ]);
-        ex19_r1.xgroup();
         // "R2" of Example 19 in "Metric Comparisons".
-        let mut ex19_r2 = Relation::from(vec![
+        let ex19_r2 = Relation::from(vec![
             Column::from(vec![0b00000u8]),
             Column::from(vec![0b00101u8]),
             Column::from(vec![0b11000u8]),
@@ -790,8 +890,7 @@ mod tests {
             Column::from(vec![0b00100u8]),
             Column::from(vec![0b10010u8]),
         ]);
-        ex19_r2.xgroup();
-        assert_eq!(ex18_r1.rel_dist_bound(&ex18_r2), 9, "Fails Example 18: rel_dist_bound(R1,R2) => 9");
+        assert_eq!(ex18_r1.rel_dist_bound(&ex18_r2), 8, "Fails Example 18 (corrected): rel_dist_bound(R1,R2) => 8");
         assert_eq!(ex19_r1.rel_dist_bound(&ex19_r2), 2, "Fails Example 19:  rel_dist_bound(R1,R2) => 2");
     }
 }
