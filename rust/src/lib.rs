@@ -291,18 +291,47 @@ impl<'a> Relation<'a> {
 
     pub fn set_col(&mut self, n:usize, v:Column) {
         //! `set_col()` replaces the Relation's n'th Column with v, pushing any needed zero columns, and resets the `x_groups` to None
-        assert!(self.row_count == v.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, v.row_count);
-        let need_cols = n.checked_sub(self.columns.len()).unwrap_or(0);
-        for _ in 0..need_cols {
-            self.columns.push(Column::zero(self.row_count));
-        };
-        self.columns[n] = v;
-        self.x_groups = None;   // force recalculation next time
+        //! Panics if non-empty self and v have different `row_count`s.
+        let self_empty = self.is_empty();
+        let v_empty = v.is_empty();
+        if self_empty && v_empty {
+            println!("both empty");
+            // no-op
+        } else {
+            let need_cols = n.checked_sub(self.columns.len()).unwrap_or(0);
+            let mut new_col = v;
+            if self_empty {
+                println!("self_empty");
+                self.row_count = new_col.row_count;
+                self.columns.clear();
+            } else if v_empty {
+                println!("v_empty");
+                new_col = Column::zero(self.row_count);
+            } else {
+                println!("neither empty");
+                assert!(self.row_count == new_col.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, new_col.row_count);
+            }
+            for _ in 0..need_cols {
+                self.columns.push(Column::zero(self.row_count));
+            };
+            self.columns[n] = new_col;
+            self.x_groups = None;   // force recalculation next time
+        }
     }
 
     pub fn match_columns(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
         //! `match_columns(self, other)` compares two specified Columns between Relations
-        self.columns[col1].column_diff(&other.columns[col2])
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        if self_empty && other_empty {
+            0
+        } else if self_empty {
+            Column::new().column_diff(&other.columns[col2])
+        } else if other_empty {
+            Column::new().column_diff(&self.columns[col1])
+        } else {
+            self.columns[col1].column_diff(&other.columns[col2])
+        }
     }
 
     pub fn xgroup(&self) -> Option<Vec<XGroup>> {
@@ -762,9 +791,11 @@ mod tests {
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let mut r1 = Relation::from(vec![c1.clone(), c2.clone()]);
-        assert_eq!(r1.get_col(0), &c1, "Fails to get column {}", 1);
-        r1.set_col(0, c2);
-        assert!(r1.get_col(0).is_empty(), "Fails to set column {} to zero", 1);
+        assert_eq!(r1.get_col(0), &c1, "\nFails to get_col[{}] ", 0);
+        r1.set_col(0, c2.clone());
+        assert_eq!(r1.get_col(0), &c2, "\nFails to set_col[{}] to c2:\n- {:?}", 0, r1);
+        r1.set_col(0, Column::new());
+        assert!(r1.get_col(0).is_empty(), "\nFails to set_col[{}] to empty", 0);
     }
 
     #[test]
@@ -937,9 +968,10 @@ mod tests {
             Column::from(vec![0b0000u8]),
             Column::from(vec![0b1000u8]),
         ]);
-        assert_eq!(r1.match_columns(&r2, 0, 0), 1, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 1", 0, r1, 0, r2);
-        assert_eq!(r1.match_columns(&r2, 0, 1), 0, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 0", 0, r1, 1, r2);
-        assert_eq!(r1.match_columns(&r2, 1, 0), 2, "\nmatch\n Col: {} of {:?},\n Col: {} or {:?}\nexpected: 2", 1, r1, 0, r2);
+        assert_eq!(r1.match_columns(&r2, 0, 0), 1, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 1", 0, r1, 0, r2);
+        assert_eq!(r1.match_columns(&r2, 0, 1), 0, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 0", 0, r1, 1, r2);
+        assert_eq!(r1.match_columns(&r2, 1, 0), 2, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 2", 1, r1, 0, r2);
+        assert_eq!(Relation::new().match_columns(&r1, 0, 0), 1, "\nmatch\n- Col: {} of empty \n- Col: {} or {:?}\nexpected: 1", 0, 0, r1)
     }
 
     #[test]
