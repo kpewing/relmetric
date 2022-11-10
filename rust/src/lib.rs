@@ -6,6 +6,10 @@ use byteorder::{BigEndian, WriteBytesExt};
 
 /// Represents a column in a Relation
 ///
+/// Each is represented by a list of u8 integers in big-endian order.
+/// Lists end on word boundaries; so modulus resides in the low end of last
+/// integer in the list for each column.
+///
 /// The default [`Column`] is empty, with `row_count` == 0 and empty `bit_field`.
 ///
 /// # Examples
@@ -13,9 +17,9 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// ```
 /// use relmetric::Column;
 ///
-/// let c0: Column = Column::new();
-/// assert_eq!(c0.row_count, 0, "The row_count should be 0, not {}", c0.row_count);
-/// assert!(c0.bit_field.is_empty(), "The bit_field should be empty");
+/// let c0 = Column::new();
+/// assert_eq!(c0.row_count, 0);
+/// assert!(c0.bit_field.is_empty());
 /// assert!(c0.is_empty());
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -75,6 +79,7 @@ impl Column {
 
     pub fn set_bit(&mut self, n:usize, v: bool) {
         //! `set_bit` set the n'th bit to the given bool value, pushing any needed zeros onto bit_field
+        //! Panics if row_count == 0 or bit index outside range 0..row_count
         assert!(self.row_count > 0, "Column::set_bit requires row_count > 0");
         assert!(n < self.row_count, "Column::set_bit index {n} outside range: 0..{}", self.row_count);
         const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
@@ -89,6 +94,44 @@ impl Column {
         } else {
             self.bit_field[the_int] = self.bit_field[the_int] & ROW_MASK[the_bit];
         }
+    }
+
+    pub fn get_row_count(&self) -> usize {
+        //! `get_row_count` returns the row_count
+        self.row_count
+    }
+
+    pub fn set_row_count(&mut self, v: usize) -> usize {
+        //! `set_row_count` sets and returns the row_count
+        //! Panics if the row_count exceed capacity of bit_field
+        let cap = self.bit_field.len() * u8::BITS as usize;
+        assert!(v <= cap, "Column::set_row_count requires new value in range 0..{}", cap);
+        self.row_count = v;
+        self.row_count
+    }
+
+    pub fn max_row_count(&self) -> usize {
+        //! `max_row_count` returns 1 + the highest row index with a true bit
+        let n = self.bit_field.len();
+        let mut res = n * u8::BITS as usize;
+        for i in 0..n {
+            let int = self.bit_field[n-i-1];
+            let zeros = int.leading_zeros();
+            print!("{:08b}[{}:{}] ", int, i, zeros);
+            if zeros == u8::BITS {
+                res -= u8::BITS as usize
+            } else {
+                res -= zeros as usize;
+                break
+            }
+        }
+        println!("=> {}", res);
+        return res
+    }
+
+    pub fn trim_row_count(&mut self) -> usize {
+        //! `trim_row_count` sets and returns the `row_count` to match the `max_row_count`
+        self.set_row_count(self.max_row_count())
     }
 
     pub fn is_disjoint(&self, other: &Column) -> bool {
@@ -304,6 +347,7 @@ impl<'a> Relation<'a> {
                 println!("self_empty");
                 self.row_count = new_col.row_count;
                 self.columns.clear();
+                self.columns = vec![Column::zero(new_col.row_count)];
             } else if v_empty {
                 println!("v_empty");
                 new_col = Column::zero(self.row_count);
@@ -317,6 +361,20 @@ impl<'a> Relation<'a> {
             self.columns[n] = new_col;
             self.x_groups = None;   // force recalculation next time
         }
+    }
+
+    pub fn max_row_count(&self) -> usize {
+        //! `max_row_count()` the highest max_row_count() of its `Columns`
+        self.columns.iter().fold(0, |acc, x|acc.max(x.max_row_count()))
+    }
+
+    pub fn trim_row_count(&mut self) -> usize {
+        let max_row_count = self.max_row_count();
+        for c in &mut self.columns {
+            c.set_row_count(max_row_count);
+        };
+        self.row_count = max_row_count;
+        max_row_count
     }
 
     pub fn match_columns(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
@@ -976,7 +1034,7 @@ mod tests {
 
     #[test]
     fn weight_works() {
-
+        // let ex1_r = Relation::new();
     }
 
     #[test]
@@ -992,6 +1050,46 @@ mod tests {
     #[test]
     fn relmetric_works() {
 
+    }
+
+    #[test]
+    fn col_max_row_count_works() {
+        let mut c = Column::new();
+        assert_eq!(c.max_row_count(), 0," for {:?}", c);
+        c = Column::from(vec![0b11111111u8]);
+        assert_eq!(c.max_row_count(), 8," for {:?}", c);
+        c = Column::from(vec![0b1111u8, 0b111u8]);
+        assert_eq!(c.max_row_count(), 11," for {:?}", c);
+        c = Column::from(vec![0b1111u32, 0b1111u32]);
+        assert_eq!(c.max_row_count(), 60," for {:?}", c);
+    }
+
+    #[test]
+    fn col_trim_row_count_works() {
+        let mut c = Column::from(vec![0b1111u32, 0b1111u32]);
+        assert_eq!(c.row_count, 64);
+        assert_eq!(c.trim_row_count(), 60);
+        assert_eq!(c.row_count, 60);
+    }
+
+    #[test]
+    fn rel_max_row_count_works() {
+        let r0 = Relation::from(vec![Column::new()]);
+        assert_eq!(r0.max_row_count(), 0," for {:?}", r0);
+        let r1 = Relation::from(vec![Column::from(vec![0b11111111u8])] );
+        assert_eq!(r1.max_row_count(), 8," for {:?}", r1);
+        let r2 = Relation::from(vec![Column::from(vec![0b1111u8, 0b111u8])] );
+        assert_eq!(r2.max_row_count(), 11," for {:?}", r2);
+        let r3 = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])] );
+        assert_eq!(r3.max_row_count(), 60," for {:?}", r3);
+    }
+
+    #[test]
+    fn rel_trim_row_count_works() {
+        let mut r = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])]);
+        assert_eq!(r.row_count, 64);
+        assert_eq!(r.trim_row_count(), 60);
+        assert_eq!(r.row_count, 60);
     }
 
 }
