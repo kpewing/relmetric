@@ -1,4 +1,4 @@
-use std::{fmt::{self}, iter::zip, ops::{Sub, BitAnd, BitOr, Index}};
+use std::{fmt::{self}, iter::zip, ops::{Sub, BitAnd, BitOr, Index, BitXor}};
 
 // use core::slice;
 // use std::ops::{Index};
@@ -6,9 +6,8 @@ use byteorder::{BigEndian, WriteBytesExt};
 
 /// Represents a column in a Relation.
 ///
-/// Each is represented by a list of u8 integers in big-endian order.
-/// Lists end on word boundaries; so modulus resides in the low end of last
-/// integer in the list for each column.
+/// Each is represented by a list of [`u8`] integers in big-endian order.
+/// Lists end on word boundaries; so the modulus resides in the low end of last integer in the list for each column.
 ///
 /// The default `Column` is empty, with `row_count` == 0 and empty [`bit_field`. Zero `Column` is also empty but has a specified positive [`row_count`.
 ///
@@ -33,7 +32,7 @@ pub struct Column {
 }
 
 impl Column {
-    /// Returns a new empty [`Column`] with `row_count` set to default 0.
+    /// Returns a new empty [`Column`] equal to the [`Default`] with `row_count` 0 and `bit_field` empty.
     pub fn new() -> Column {
         Default::default()
     }
@@ -48,6 +47,21 @@ impl Column {
             row_count,
             bit_field: vec![0u8; int_count]
         }
+    }
+
+    /// Returns the `row_count`.
+    pub fn get_row_count(&self) -> usize {
+        self.row_count
+    }
+
+    /// Sets and returns the `row_count`.
+    ///
+    /// Panics if the requested `row_count` exceeds capacity of [`bit_fied`.
+    pub fn set_row_count(&mut self, v: usize) -> usize {
+        let cap = self.bit_field.len() * u8::BITS as usize;
+        assert!(v <= cap, "Column::set_row_count requires new value in range 0..{}", cap);
+        self.row_count = v;
+        self.row_count
     }
 
     /// Returns the `bool` value of the `n`th bit.
@@ -97,21 +111,6 @@ impl Column {
         }
     }
 
-    /// Returns the `row_count`.
-    pub fn get_row_count(&self) -> usize {
-        self.row_count
-    }
-
-    /// Sets and returns the `row_count`.
-    ///
-    /// Panics if the requested `row_count` exceeds capacity of [`bit_fied`.
-    pub fn set_row_count(&mut self, v: usize) -> usize {
-        let cap = self.bit_field.len() * u8::BITS as usize;
-        assert!(v <= cap, "Column::set_row_count requires new value in range 0..{}", cap);
-        self.row_count = v;
-        self.row_count
-    }
-
     /// Returns 1 + the highest row index with a `true` bit.
     ///
     /// NB: Ignores leading `false` bits; so can be "too short".
@@ -138,9 +137,14 @@ impl Column {
         self.set_row_count(self.max_true_bit())
     }
 
-    /// Returns `true` iff the `row_count` == 0 or the `bit_field` is empty.
+    /// Returns `true` iff `row_count` == 0 or `bit_field` is empty.
     pub fn is_empty(&self) -> bool {
-        self.row_count == 0 || self.bit_field.is_empty() || self.bit_field.iter().all(|&x|x == 0)
+        self.row_count == 0 || self.bit_field.is_empty()
+    }
+
+    /// Returns `true` iff `row_count` > 0 and `bit_field` all 0u8.
+    pub fn is_zero(&self) -> bool {
+        self.row_count > 0 && self.bit_field.iter().all(|&x|x == 0)
     }
 
     /// Returns whether two [`Column`]s are disjoint by rows.
@@ -367,6 +371,25 @@ impl BitOr for Column {
     }
 }
 
+impl BitXor for Column {
+    type Output = Self;
+
+    /// Performs the [`^`](std::ops::BitOr::bitxor) operation for two [`Column`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Column`]s don't have the same `row_count`.
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        if self.is_empty() {
+            return rhs.clone()
+        } else if rhs.is_empty() {
+            return self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Column::bitxor requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.bit_field.len() == rhs.bit_field.len(), "Column::bitxor requires non-empty Columns to have equal length bit fields but: {} != {}", self.bit_field.len(), rhs.bit_field.len());
+            return Column::from(zip(self.bit_field.clone(), rhs.bit_field.clone()).map(|(s,r)|s ^ r).collect::<Vec<u8>>());
+        }
+    }
+}
+
 
 /// Represents a Relation
 ///
@@ -387,6 +410,15 @@ impl<'a> Relation<'a> {
     /// Returns a new empty [`Relation`] with `row_count` set to default 0, no [`Column`]s and `x_groups` `None`.
     pub fn new() -> Relation<'a> {
         Default::default()
+    }
+
+    /// Returns a zero [`Relation`] with given `row_count` and number of zero[`Column`]s
+    pub fn zero(row_count: usize, col_count: usize) -> Relation<'a> {
+        Relation {
+            row_count,
+            columns: vec![Column::zero(row_count); col_count],
+            x_groups: Default::default()
+        }
     }
 
     /// Returns the `row_count`.
@@ -461,7 +493,7 @@ impl<'a> Relation<'a> {
     }
 
     /// Returns the [`Column::column_diff()`] of two specified [`Column`]s of two [`Relation`]s
-    pub fn match_columns(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
+    pub fn match_column_old(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty && other_empty {
@@ -533,7 +565,7 @@ impl<'a> Relation<'a> {
 
     /// Returns the "kappa" value for a [`Relation`].
     ///
-    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
     pub fn kappa(&self, max_count: Option<usize>) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
@@ -572,7 +604,7 @@ impl<'a> Relation<'a> {
 
     /// Returns the bound on the "Relation metric" for "distance" between two [`Relation`]s.
     ///
-    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
     pub fn rel_dist_bound(&self, other: &Relation) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
 
@@ -597,66 +629,94 @@ impl<'a> Relation<'a> {
         return rel1_count.max(rel2_count) - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
 
-    /// Returns the "weight" of a [`Column`] function from `self` to `other` (represented as `col_matches`).
+    /// Returns a new [`Relation`] resulting from applying `col_matches` between `self` and `other`
     ///
-    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
-    ///
-    /// Weight between empty Relations is 0. Weight to an empty Relation
-    /// simply counts ones in `self`, similarly for empty `other`.
-    ///
-    /// Panics if non-empty Relations don't have same `row_count`s or `col_matches` exceeds Column counts of `self` and `other`.
-    pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
-
+    /// Panics if `self` and `other` don't have same `row_count` or if `col_matches` is out of range for either `self` or `other`.
+    pub fn match_columns(&self, &other: &Relation<'_>, col_matches: &Vec<usize>) -> Relation<'a> {
+        assert_eq!(self.row_count, other.row_count, "Relation::weight() requires both Relations to have same row_count but {} != {}", self.row_count, other.row_count);
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
-        let from_col_count;
-        let to_col_count;
-        let mut col_used;
-        let mut diff= 0;
-        let mut use_count: u32 = 0;
-
-        if self_empty && other_empty {
-            println!("weight both empty");
-            from_col_count = 0;
-            to_col_count = 0;
+        if self_empty & other_empty {
+            return self.clone()
         } else if self_empty {
-            println!("weight self_empty");
-            from_col_count = other.columns.len();
-            to_col_count = other.columns.len();
+            return Relation::zero(other.row_count, other.columns.len()).match_columns(&other, col_matches)
         } else if other_empty {
-            println!("weight other_empty");
-            from_col_count = self.columns.len();
-            to_col_count = self.columns.len();
+            return self.match_columns(&Relation::zero(self.row_count, self.columns.len()), col_matches)
         } else {
-            println!("weight both non-empty");
-            assert_eq!(self.row_count, other.row_count, "Relation::weight() requires non-empty Relations to have same row_count but {} != {}", self.row_count, other.row_count);
-            from_col_count = self.columns.len();
-            to_col_count = other.columns.len();
+            assert!(col_matches.len() <= self.columns.len(), "Relation::weight() Invalid col_match: col_match.len() {} > self.columns.len() {}", col_matches.len(), self.columns.len());
+            assert!(other.columns.len() >= *col_matches.iter().max().unwrap(), "Relation::weight() Invalid col_match: max col_matches[..] > self.columns.len() {}", other.columns.len());
+
+            let mut res = self.clone();
+            for i in 0..col_matches.len() {
+                res.set_col(i, *other.get_col(col_matches[i]))
+            }
+            return res
         }
+    }
 
-        assert_eq!(col_matches.len(), from_col_count, "Relation::weight() Invalid col_match: col_match.len() {} != self.columns.len() {}", col_matches.len(), from_col_count);
-        let col_matches_max = col_matches.iter().max().unwrap();
-        assert!(*col_matches_max < to_col_count, "Relation::weight() Invalid col_match: max Column index {} > image range {}", col_matches_max, to_col_count);
+    /// Returns the "weight" of a [`Column`] function from `self` to `other` (represented as `col_matches`).
+    ///
+    /// Panics if non-empty [`Relation`]s don't have same `row_count`s or `col_matches` exceeds Column counts of `self` and `other`.
+    ///
+    /// Given a function *f* that matches each [`Column`] in one [`Relation`] *r1* to a some [`Column`] in the other [`Relation`] *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] simply counts ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
+    ///
+    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
 
-        // clear image of the match in other
-        col_used = vec![0; to_col_count];
+        return self.clone().match_columns(other, col_matches).bitxor(&self).columns.iter().fold(vec![0_u32; self.row_count], |acc, &c| { for r in 0..c.row_count { if !c.get_bit(r) { acc[r] += 1}}; acc}).max().unwrap_or(0)
 
-        // apply current match
-        for i in 0..from_col_count {
-            diff = diff + self.match_columns(&other, i, col_matches[i]);
-            col_used[col_matches[i]] = 1;
-        }
+        // let self_empty = self.is_empty();
+        // let other_empty = other.is_empty();
+        // let from_col_count;
+        // let to_col_count;
+        // let mut col_used;
+        // let mut diff= 0;
+        // let mut use_count: u32 = 0;
+
+        // if self_empty && other_empty {
+        //     println!("weight both empty");
+        //     from_col_count = 0;
+        //     to_col_count = 0;
+        // } else if self_empty {
+        //     println!("weight self_empty");
+        //     from_col_count = other.columns.len();
+        //     to_col_count = other.columns.len();
+        // } else if other_empty {
+        //     println!("weight other_empty");
+        //     from_col_count = self.columns.len();
+        //     to_col_count = self.columns.len();
+        // } else {
+        //     println!("weight both non-empty");
+        //     assert_eq!(self.row_count, other.row_count, "Relation::weight() requires non-empty Relations to have same row_count but {} != {}", self.row_count, other.row_count);
+        //     from_col_count = self.columns.len();
+        //     to_col_count = other.columns.len();
+        // }
+
+        // assert_eq!(col_matches.len(), from_col_count, "Relation::weight() Invalid col_match: col_match.len() {} != self.columns.len() {}", col_matches.len(), from_col_count);
+        // let col_matches_max = col_matches.iter().max().unwrap();
+        // assert!(*col_matches_max < to_col_count, "Relation::weight() Invalid col_match: max Column index {} > image range {}", col_matches_max, to_col_count);
+
+        // // clear image of the match in other
+        // col_used = vec![0; to_col_count];
+
+        // // apply the match
+        // for i in 0..from_col_count {
+        //     diff = diff + self.match_columns(&other, i, col_matches[i]);
+        //     col_used[col_matches[i]] = 1;
+        // }
 
         // count columns in image
-        if !self_empty {
-            for i in 0..to_col_count {
-                use_count = use_count + col_used[i];
-            }
-        }
-        println!("- diff:{} #col_used:{} use_count:{}", diff, col_used.len(), use_count);
+        // if !self_empty {
+        //     for i in 0..to_col_count {
+        //         use_count = use_count + col_used[i];
+        //     }
+        // }
+        // println!("- diff:{} #col_used:{} use_count:{}", diff, col_used.len(), use_count);
 
-        // apply penalty for unmatched columns
-        return diff + (to_col_count as u32 - use_count)
+        // // apply penalty for unmatched columns
+        // return diff + (to_col_count as u32 - use_count)
     }
 }
 
@@ -742,6 +802,75 @@ impl fmt::UpperHex for Relation<'_> {
     }
 }
 
+impl BitAnd for Relation<'_> {
+    type Output = Self;
+
+    /// Performs the [`^`](std::ops::BitAnd::bitand) operation for two [`Relation`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    fn bitand(self, rhs: Self) -> Self::Output {
+        if self.is_empty() {
+            return rhs.clone()
+        } else if rhs.is_empty() {
+            return self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Relation::bitxor requires non-empty Relations to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.columns.len() == rhs.columns.len(), "Relation::bitxor requires non-empty Relations to have equal numbers of columns but: {} != {}", self.columns.len(), rhs.columns.len());
+            return Relation {
+                row_count: self.row_count,
+                columns: zip(self.columns.clone(), rhs.columns.clone()).map(|(s,r)|s & r).collect::<Vec<Column>>(),
+                x_groups: Default::default()
+            }
+        }
+    }
+}
+
+impl BitOr for Relation<'_> {
+    type Output = Self;
+
+    /// Performs the [`^`](std::ops::BitOr::bitor) operation for two [`Relation`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    fn bitor(self, rhs: Self) -> Self::Output {
+        if self.is_empty() {
+            return rhs.clone()
+        } else if rhs.is_empty() {
+            return self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Relation::bitxor requires non-empty Relations to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.columns.len() == rhs.columns.len(), "Relation::bitxor requires non-empty Relations to have equal numbers of columns but: {} != {}", self.columns.len(), rhs.columns.len());
+            return Relation {
+                row_count: self.row_count,
+                columns: zip(self.columns.clone(), rhs.columns.clone()).map(|(s,r)|s | r).collect::<Vec<Column>>(),
+                x_groups: Default::default()
+            }
+        }
+    }
+}
+
+impl BitXor for Relation<'_> {
+    type Output = Self;
+
+    /// Performs the [`^`](std::ops::BitXor::bitxor) operation for two [`Relation`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        if self.is_empty() {
+            return rhs.clone()
+        } else if rhs.is_empty() {
+            return self.clone()
+        } else {
+            assert!(self.row_count == rhs.row_count, "Relation::bitxor requires non-empty Relations to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
+            assert!(self.columns.len() == rhs.columns.len(), "Relation::bitxor requires non-empty Relations to have equal numbers of columns but: {} != {}", self.columns.len(), rhs.columns.len());
+            return Relation {
+                row_count: self.row_count,
+                columns: zip(self.columns.clone(), rhs.columns.clone()).map(|(s,r)|s ^ r).collect::<Vec<Column>>(),
+                x_groups: Default::default()
+            }
+        }
+    }
+}
+
 impl Sub for Relation<'_> {
     type Output = Self;
 
@@ -778,7 +907,7 @@ impl Sub for Relation<'_> {
 //
 /// A [`Relation`]'s collection of [`Column`]s can be partitioned into an [`XGrouping`] of Columns, where each [`XGroup`] collects [`Column`]s in the [`Relation`] that each share a `true` bit with some other member of the `XGroup`.
 ///
-/// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+/// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGrouping<'a> {
     relation: &'a Relation<'a>,
@@ -845,7 +974,7 @@ impl fmt::Display for XGrouping<'_> {
 //
 // Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
 ///
-/// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+/// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGroup {
     pub max: Column,
@@ -872,7 +1001,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new_col_works() {
+    fn col_new_works() {
         let res: Column = Column::new();
         let want = Column {
             row_count: 0,
@@ -882,7 +1011,7 @@ mod tests {
     }
 
     #[test]
-    fn zero_col_works() {
+    fn col_zero_works() {
         let res = Column::zero(32);
         let want = Column {
             row_count: 32,
@@ -1022,6 +1151,42 @@ mod tests {
         res = format!("{:X}", c1);
         want = "[30, 00, 00, F]";
         assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c1);
+    }
+
+    #[test]
+    fn col_bitand_works() {
+        let empty = Column::new();
+        let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x100fu16, 0x0f3fu16]);
+        let c3 = Column::from(vec![0x1000u16, 0x000fu16]);
+        assert_eq!(c0.clone().bitand(empty.clone()), c0, "\nColumn::BitAnd fails for\n{:b}\n{:b}", c0, empty);
+        assert_eq!(c0.clone().bitand(c1.clone()), c0, "\nColumn::BitAnd fails for\n{:b}\n{:b}", c0, c1);
+        assert_eq!(c1.clone().bitand(c2.clone()), c3, "\nColumn::BitAnd fails for\n{:b}\n{:b}", c1, c2);
+    }
+
+    #[test]
+    fn col_bitor_works() {
+        let empty = Column::new();
+        let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x100fu16, 0x0f3fu16]);
+        let c3 = Column::from(vec![0x300fu16, 0x0f3fu16]);
+        assert_eq!(c0.clone().bitor(empty.clone()), c0, "\nColumn::BitOr fails for\n{:b}\n{:b}", c0, empty);
+        assert_eq!(c0.clone().bitor(c1.clone()), c1, "\nColumn::BitOr fails for\n{:b}\n{:b}", c0, c1);
+        assert_eq!(c1.clone().bitor(c2.clone()), c3, "\nColumn::BitOr fails for\n{:b}\n{:b}", c1, c2);
+    }
+
+    #[test]
+    fn col_bitxor_works() {
+        let empty = Column::new();
+        let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = Column::from(vec![0x100fu16, 0x0f3fu16]);
+        let c3 = Column::from(vec![0x200fu16, 0x0f30u16]);
+        assert_eq!(c0.clone().bitxor(empty.clone()), c0, "\nColumn::BitXor fails for\n{:b}\n{:b}", c0, empty);
+        assert_eq!(c0.clone().bitxor(c1.clone()), c1, "\nColumn::BitXor fails for\n{:b}\n{:b}", c0, c1);
+        assert_eq!(c1.clone().bitxor(c2.clone()), c3, "\nColumn::BitXor fails for\n{:b}\n{:b}", c1, c2);
     }
 
     #[test]
@@ -1320,7 +1485,7 @@ mod tests {
     }
 
     #[test]
-    fn match_columns_works() {
+    fn rel_match_columns_works() {
         let r1 = Relation::from(vec![
             Column::from(vec![0b1000u8]),
             Column::from(vec![0b1001u8]),
@@ -1336,11 +1501,11 @@ mod tests {
     }
 
     #[test]
-    fn weight_works() {
+    fn rel_weight_works() {
         let ex1_r1 = Relation {row_count: 1, columns: vec![Column { row_count: 1, bit_field: vec![0b1u8] }], x_groups: None };
         let ex1_r2 = Relation::new();
         let ex1_matches = vec![0];
-        assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nweight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
+        assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nEx 1: weight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
 
         let mut ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
@@ -1357,17 +1522,17 @@ mod tests {
         // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
         let ex2_matches21 = vec![1, 2, 0];
-        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nweight of {:?} for\n{:x} ->\n{:x}\n", ex2_matches12, ex2_r1, ex2_r2);
-        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nweight of {:?} for\n{:x} ->\n{:x}\n", ex2_matches21, ex2_r2, ex2_r1);
+        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nEx 2: weight of {:?} for\n{:x} -> {:x}\n", ex2_matches12, ex2_r1, ex2_r2);
+        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nEx 2: weight of {:?} for\n{:x} -> {:x}\n", ex2_matches21, ex2_r2, ex2_r1);
     }
 
     #[test]
-    fn matches_works() {
+    fn rel_matches_works() {
 
     }
 
     #[test]
-    fn min_weight_works() {
+    fn rel_min_weight_works() {
 
     }
 
