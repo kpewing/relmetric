@@ -733,15 +733,21 @@ impl Sub for Relation<'_> {
     fn sub(self, other: Self) -> Self::Output {
         assert_eq!(self.row_count, other.row_count, "Relation::sub requires non-empty Relations to have equal row_counts but {} != {}", self.row_count, other.row_count);
         let mut new_cols = vec![];
-        let mut used_cols = vec![false; self.columns.len()];
+        let mut cut_sc = vec![false; self.columns.len()];
+        let mut used_oc = vec![false; other.columns.len()];
         for (i, sc) in self.columns.iter().enumerate() {
-            for oc in &other.columns {
-                if !used_cols[i] && *sc == *oc {
-                    used_cols[i] = true;
+            for (j, oc) in other.columns.iter().enumerate() {
+                if !cut_sc[i] && !used_oc[j] && *sc == *oc {
+                    cut_sc[i] = true;
+                    used_oc[j] = true;
+                    print!("cut{}{} ", i, j);
                     break
-                } else {
-                    new_cols.push(sc.clone())
                 }
+            }
+        }
+        for i in 0..self.columns.len() {
+            if !cut_sc[i] {
+                new_cols.push(self.columns[i].clone())
             }
         };
         return Relation {
@@ -1107,8 +1113,10 @@ mod tests {
             Column::from(vec![0x3000u16, 0x000fu16]),
             Column::from(vec![0x100fu16, 0x0f3fu16]),
         ]);
-        let res = r1.clone() - r2.clone();
+        let mut res = r1.clone() - r2.clone();
         assert_eq!(res, r3, "\nRelation::sub fails for\n lhs:{:b}\n rhs:{:b}\nshould be {:b}\ngot       {:b}", r1, r2, r3, res);
+        res = res - r3.clone();
+        assert!(res.is_empty(), "\nRelation::sub fails for\n lhs:{:b}\n rhs:{:b}\nshould be {:b}\ngot       {:b}", res, r3, Relation::new(), res);
     }
 
     #[test]
