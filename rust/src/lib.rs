@@ -1,16 +1,16 @@
-use std::{fmt, iter::zip, ops::{Sub, BitAnd, BitOr, Index}};
+use std::{fmt::{self}, iter::zip, ops::{Sub, BitAnd, BitOr, Index}};
 
 // use core::slice;
 // use std::ops::{Index};
 use byteorder::{BigEndian, WriteBytesExt};
 
-/// Represents a column in a Relation
+/// Represents a column in a Relation.
 ///
 /// Each is represented by a list of u8 integers in big-endian order.
 /// Lists end on word boundaries; so modulus resides in the low end of last
 /// integer in the list for each column.
 ///
-/// The default [`Column`] is empty, with `row_count` == 0 and empty `bit_field`.
+/// The default `Column` is empty, with `row_count` == 0 and empty [`bit_fied`. Zero `Column` is also empty but has a specified positive [`row_cout`.
 ///
 /// # Examples
 ///
@@ -24,15 +24,21 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Column {
+    /// The number of rows of this [`Column`].
     pub row_count: usize,
+    /// Represents a sequence of rows as bits in a big-endian vector of `u8` integers.
+    ///
+    /// NB: Modulus of rows resides in low end of last integer.
     pub bit_field: Vec<u8>,
 }
 
 impl Column {
+    /// Returns a new empty [`Column`] with `row_count` set to default 0.
     pub fn new() -> Column {
-        //! `new()` takes no arguments and returns an empty Column
         Default::default()
     }
+
+    /// Returns a new empty [`Column`] with requested `row_count`.
     pub fn zero(row_count: usize) -> Column {
         let mut int_count = row_count / (u8::BITS as usize);
         if row_count % (u8::BITS as usize) > 0 {
@@ -43,81 +49,74 @@ impl Column {
             bit_field: vec![0u8; int_count]
         }
     }
-    pub fn len(&self) -> usize {
-        //! `len()` returns the number of `u8` integers representing the Column
-        self.bit_field.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        //! `is_empty` returns `true` iff the `row_count` == 0 or the `bit_field` is empty
-        self.row_count == 0 || self.bit_field.is_empty() || self.bit_field.iter().all(|&x|x == 0)
-    }
-    pub fn to_hex(&self) -> String {
-        //! `to_hex` returns a string with hexadecimal representation of the Column's `u8` bytes
-        let mut s = String::new();
-        s.push_str("{ ");
-        for elem in &self.bit_field {
-            s.push_str(&format!("{:02x}", elem));
-            s.push_str(" ");
-        }
-        s.push_str("}");
-        return s
-    }
 
+    /// Returns the `bool` value of the `n`th bit.
     pub fn get_bit(&self, n:usize) -> bool {
-        //! `get_bit` returns the bool value of the n'th bit
         assert!(self.row_count > 0, "Column::get_bit requires row_count > 0");
         assert!(n < self.row_count, "Column::get_bit index {n} outside range: 0..{}", self.row_count);
-        const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
+        const LO_ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
+        const HI_ROW_MASK: [u8; 8] = [0b00000001u8, 0b00000010u8, 0b00000100u8, 0b00001000u8, 0b00010000u8, 0b00100000u8, 0b01000000u8, 0b10000000u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
         if self.bit_field.len() == 0 {
             return false
+        } else if the_int < self.bit_field.len() {
+            return self.bit_field[the_int] & LO_ROW_MASK[the_bit] > 0
         } else {
-            return self.bit_field[the_int] & ROW_MASK[the_bit] > 0;
+            return self.bit_field[the_int] & HI_ROW_MASK[the_bit] > 0
         }
     }
 
+    /// Sets the `n`th bit to the given `bool` value, pushing any needed zeros onto the `bit_field`.
     pub fn set_bit(&mut self, n:usize, v: bool) {
-        //! `set_bit` set the n'th bit to the given bool value, pushing any needed zeros onto bit_field
         //! Panics if row_count == 0 or bit index outside range 0..row_count
         assert!(self.row_count > 0, "Column::set_bit requires row_count > 0");
         assert!(n < self.row_count, "Column::set_bit index {n} outside range: 0..{}", self.row_count);
-        const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
+        const LO_BIT_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
+        const HI_BIT_MASK: [u8; 8] = [0b00000001u8, 0b00000010u8, 0b00000100u8, 0b00001000u8, 0b00010000u8, 0b00100000u8, 0b01000000u8, 0b10000000u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
+        let the_mask;
         let need_ints = the_int.checked_sub(self.bit_field.len()).unwrap_or(0);
         for _ in 0..need_ints {
             self.bit_field.push(0u8);
         };
-        if v == true {
-            self.bit_field[the_int] = self.bit_field[the_int] | ROW_MASK[the_bit];
+        if the_int < self.bit_field.len() {
+            the_mask = LO_BIT_MASK;
         } else {
-            self.bit_field[the_int] = self.bit_field[the_int] & ROW_MASK[the_bit];
-        }
+            the_mask = HI_BIT_MASK;
+        };
+        if v == true {
+            self.bit_field[the_int] = self.bit_field[the_int] | the_mask[the_bit];
+        } else {
+            self.bit_field[the_int] = self.bit_field[the_int] & !the_mask[the_bit];
+        }; // keep 0 with |0, &0, &1, ^1; keep 1 with |0, |1, &1, ^0; flip 0 with |1, &0, ^1; flip 1 with &0, ^0
     }
 
+    /// Returns the `row_count`.
     pub fn get_row_count(&self) -> usize {
-        //! `get_row_count` returns the row_count
         self.row_count
     }
 
+    /// Sets and returns the `row_count`.
+    ///
+    /// Panics if the requested `row_count` exceeds capacity of [`bit_fied`.
     pub fn set_row_count(&mut self, v: usize) -> usize {
-        //! `set_row_count` sets and returns the row_count
-        //! Panics if the row_count exceed capacity of bit_field
         let cap = self.bit_field.len() * u8::BITS as usize;
         assert!(v <= cap, "Column::set_row_count requires new value in range 0..{}", cap);
         self.row_count = v;
         self.row_count
     }
 
-    pub fn max_row_count(&self) -> usize {
-        //! `max_row_count` returns 1 + the highest row index with a true bit
+    /// Returns 1 + the highest row index with a `true` bit.
+    ///
+    /// NB: Ignores leading `false` bits; so can be "too short".
+    pub fn max_true_bit(&self) -> usize {
         let n = self.bit_field.len();
         let mut res = n * u8::BITS as usize;
         for i in 0..n {
             let int = self.bit_field[n-i-1];
             let zeros = int.leading_zeros();
-            print!("{:08b}[{}:{}] ", int, i, zeros);
             if zeros == u8::BITS {
                 res -= u8::BITS as usize
             } else {
@@ -125,19 +124,27 @@ impl Column {
                 break
             }
         }
-        println!("=> {}", res);
         return res
     }
 
+    /// Sets and returns the `row_count` to match the `max_true_bit()`.
+    ///
+    /// NB: Ignores leading `false` bits; so can be "too short".
     pub fn trim_row_count(&mut self) -> usize {
-        //! `trim_row_count` sets and returns the `row_count` to match the `max_row_count`
-        self.set_row_count(self.max_row_count())
+        self.set_row_count(self.max_true_bit())
     }
 
+    /// Returns `true` iff the `row_count` == 0 or the `bit_field` is empty.
+    pub fn is_empty(&self) -> bool {
+        self.row_count == 0 || self.bit_field.is_empty() || self.bit_field.iter().all(|&x|x == 0)
+    }
+
+    /// Returns whether two [`Column`]s are disjoint by rows.
+    ///
+    /// True unless `self` and `other` share a `true` bit in some row.
+    ///
+    /// NB: Unlike the `lua` version, empties / zeros are *not* disjoint from each other and *are* disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
     pub fn is_disjoint(&self, other: &Column) -> bool {
-        //! `is_disjoint` checks whether two columns are disjoint by rows
-        //! True unless self and other share a true bit in some row
-        //! NB: Unlike the `lua` version, empties / zeros are not disjoint from each other and are disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
         if self.is_empty() {
             if other.is_empty() {
                 return false
@@ -159,20 +166,21 @@ impl Column {
         }
     }
 
+    /// Counts the differences of two Columns
+    ///
+    /// Panics if non-empty [`Column`]s have different `row_count`s or `bit_field` lengths.
     pub fn column_diff(&self, other: &Column) -> u32 {
-        //! `column_diff` counts the differences of two Columns
-        //! Panics if non-empty Columns have different `row_count`s or `bit_field` lengths.
-        const REST_MASK: [u8; 8] = [0b00000000u8, 0b10000000u8, 0b11000000u8, 0b11100000u8, 0b11110000u8, 0b11111000u8, 0b11111100u8, 0b11111110u8];
         let mut res;
         let mut whole_ints = self.row_count / u8::BITS as usize;
         let mut rest_bits = self.row_count % u8::BITS as usize;
+        const REST_MASK: [u8; 8] = [0b00000000u8, 0b00000001u8, 0b00000011u8, 0b00000111u8, 0b00001111u8, 0b00011111u8, 0b00111111u8, 0b01111111u8];
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty && other_empty {
-            println!("both _empty");
+            println!("col_diff both _empty");
             res = 0
         } else if self_empty {
-            println!("self_empty");
+            println!("col_diff self_empty");
             whole_ints = other.row_count / u8::BITS as usize;
             rest_bits = other.row_count % u8::BITS as usize;
             res = other.bit_field.iter().take(whole_ints).fold(0, |acc, x| acc + x.count_ones());
@@ -180,13 +188,15 @@ impl Column {
                 res = res + (other.bit_field[whole_ints] & REST_MASK[rest_bits]).count_ones();
             }
         } else if other_empty {
-            println!("other_empty");
+            println!("col_diff other_empty");
             res = self.bit_field.iter().take(whole_ints).fold(0, |acc, x| acc + x.count_ones());
+            println!("- whole_ints:{} => res:{}", whole_ints, res);
             if rest_bits > 0 {
                 res = res + (self.bit_field[whole_ints] & REST_MASK[rest_bits]).count_ones();
+                println!("- rest_bits:{} => res:{}", rest_bits, res);
             }
         } else {
-            println!("both not empty");
+            println!("col_diff both not empty");
             assert_eq!(self.row_count, other.row_count, "Column::column_diff requires non-empty Columns to have equal row_count but: {} != {}", self.row_count, other.row_count);
             assert_eq!(self.bit_field.len(), other.bit_field.len(), "Column::column_diff requires non-empty Columns to have equal bit_field lengths but: {} != {}", self.bit_field.len(), other.bit_field.len());
             res = zip(&self.bit_field, &other.bit_field).take(whole_ints).fold(0, |acc, x| acc + (x.0 ^ x.1).count_ones());
@@ -198,12 +208,8 @@ impl Column {
     }
 }
 
-// # Traits
-//
-// ## From
-//
+// Since single bytes, endian-ness is irrelevant: included for completeness
 impl From<Vec<u8>> for Column {
-    //! Since single bytes, endianness is irrelevant: included for completeness
     fn from(bits: Vec<u8>) -> Self {
         let mut new_bits: Vec<u8> = Vec::new();
         for elem in bits {
@@ -243,13 +249,11 @@ impl From<Vec<u64>> for Column {
     }
 }
 
-// ## Display
-//
 impl fmt::Display for Column {
+    /// Display as a binary column of rows from top to bottom.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
         for r in 0..self.row_count {
-            // s.push_str(&format!("{}\n", 4))
             if self.get_bit(r) {
                 s.push_str("1\n")
             } else {
@@ -260,10 +264,61 @@ impl fmt::Display for Column {
     }
 }
 
-// ## BitAnd, BitOr
+impl fmt::Binary for Column {
+    /// Show a big-endian binary representation of the [`Column`] on one line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole_ints = self.row_count / u8::BITS as usize;
+        let rest_bits = self.row_count % u8::BITS as usize;
+        const REST_MASK: [u8; 8] = [0b00000000u8, 0b00000001u8, 0b00000011u8, 0b00000111u8, 0b00001111u8, 0b00011111u8, 0b00111111u8, 0b01111111u8];
+
+        let mut s = String::from("[");
+        s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:08b}", x)).collect::<Vec<String>>().join(", "));
+        if rest_bits > 0 {
+            s.push_str(&format!(", {:b}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+        }
+        s.push_str("]");
+        write!(f, "{s}")
+    }
+}
+
+impl fmt::LowerHex for Column {
+    /// Show a big-endian lower hexadecimal representation of the [`Column`] on one line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole_ints = self.row_count / u8::BITS as usize;
+        let rest_bits = self.row_count % u8::BITS as usize;
+        const REST_MASK: [u8; 8] = [0b00000000u8, 0b00000001u8, 0b00000011u8, 0b00000111u8, 0b00001111u8, 0b00011111u8, 0b00111111u8, 0b01111111u8];
+        let mut s = String::from("[");
+        s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:02x}", x)).collect::<Vec<String>>().join(", "));
+        if rest_bits > 0 {
+            s.push_str(&format!(", {:x}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+        }
+        s.push_str("]");
+        write!(f, "{s}")
+    }
+}
+
+impl fmt::UpperHex for Column {
+    /// Show a big-endian upper hexadecimal representation of the [`Column`] on one line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole_ints = self.row_count / u8::BITS as usize;
+        let rest_bits = self.row_count % u8::BITS as usize;
+        const REST_MASK: [u8; 8] = [0b00000000u8, 0b00000001u8, 0b00000011u8, 0b00000111u8, 0b00001111u8, 0b00011111u8, 0b00111111u8, 0b01111111u8];
+        let mut s = String::from("[");
+        s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:02X}", x)).collect::<Vec<String>>().join(", "));
+        if rest_bits > 0 {
+            s.push_str(&format!(", {:X}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+        }
+        s.push_str("]");
+        write!(f, "{s}")
+    }
+}
+
 impl BitAnd for Column {
     type Output = Self;
 
+    /// Performs the [`&`](std::ops::BitAnd::bitand) operation for two [`Column`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Column`]s don't have the same `row_count`.
     fn bitand(self, rhs: Self) -> Self::Output {
         if self.is_empty() {
             return rhs.clone()
@@ -280,6 +335,9 @@ impl BitAnd for Column {
 impl BitOr for Column {
     type Output = Self;
 
+    /// Performs the [`|`](std::ops::BitOr::bitor) operation for two [`Column`]s of same `row_count`.
+    ///
+    /// Panics if the two [`Column`]s don't have the same `row_count`.
     fn bitor(self, rhs: Self) -> Self::Output {
         if self.is_empty() {
             return rhs.clone()
@@ -294,47 +352,51 @@ impl BitOr for Column {
 }
 
 
-// Represents a Relation
-//
-// A Relation is a collection of Columns with the same row_count that can be partitioned by whether columns share bits row-by-row (aka `x_group`).
-//
-// The default Relation is empty, with `row_count` == 0 and empty collection of Columns.
+/// Represents a Relation
+///
+/// A binary matrix represented as a collection of [`Column`]s with the same `row_count`. A `true` bit in any Row *x* and Column *y* indicates a "relation" between *x* and *y*.
+///
+/// The default Relation is empty, with `row_count` == 0 and empty collection of Columns.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Relation<'a> {
+    /// The number of rows of all [`Column`]s of this [`Relation`].
     pub row_count: usize,
+    /// Collection of the [`Column`]s in this [`Relation`].
     pub columns: Vec<Column>,
+    /// Private field with possible partition of this [`Relation`] into "x-groups". Set by method `xgroup()`.
     x_groups: Option<XGrouping<'a>>,
 }
 
 impl<'a> Relation<'a> {
+    /// Returns a new empty [`Relation`] with `row_count` set to default 0, no [`Column`]s and `x_groups` `None`.
     pub fn new() -> Relation<'a> {
-        //! `new()` takes no arguments and returns an empty Relation
         Default::default()
     }
 
+    /// Returns the `row_count`.
+    pub fn get_row_count(&self) -> usize {
+        self.row_count
+    }
+
+    /// Returns the number of Columns in the [`Relation`].
     pub fn len(&self) -> usize {
-        //! `len()` returns the number of Columns in the Relation
         self.columns.len()
     }
 
+    /// Returns whether the [`Relation`] is empty.
     pub fn is_empty(&self) -> bool {
-        //! `is_empty()` returns whether the Relation is empty
         self.columns.len() == 0 || self.columns.iter().fold(true, |acc, x|acc & x.is_empty())
     }
 
-    pub fn to_hex(&self) -> String {
-        //! `to_hex()` returns a String representation of the Relation
-        self.columns.iter().enumerate().map(|x| format!("Col {}: {}", x.0, x.1.to_hex())).collect::<Vec<String>>().join("\n")
-    }
-
+    /// Returns the `n`'th Column in the Relation
     pub fn get_col(&self, n:usize) -> &Column {
-        //! `get_col()` takes an index n and returns the n'th Column in the Relation
         &self.columns[n]
     }
 
+    /// Replaces the [`Relation`]'s `n`'th [`Column`] with `v`, pushing any needed [zero Columns](`Column::zero()`), and resets the private `x_groups` to `None`.
+    ///
+    /// Panics if non-empty `self` and `v` have different `row_count`s.
     pub fn set_col(&mut self, n:usize, v:Column) {
-        //! `set_col()` replaces the Relation's n'th Column with v, pushing any needed zero columns, and resets the `x_groups` to None
-        //! Panics if non-empty self and v have different `row_count`s.
         let self_empty = self.is_empty();
         let v_empty = v.is_empty();
         if self_empty && v_empty {
@@ -363,37 +425,46 @@ impl<'a> Relation<'a> {
         }
     }
 
-    pub fn max_row_count(&self) -> usize {
-        //! `max_row_count()` the highest max_row_count() of its `Columns`
-        self.columns.iter().fold(0, |acc, x|acc.max(x.max_row_count()))
+    /// Returns the index of the highest `true` bit of its [`Column`]s.
+    ///
+    /// NB: Ignores leading `false` bits; so can be "too short".
+    pub fn max_true_bit(&self) -> usize {
+        self.columns.iter().fold(0, |acc, x|acc.max(x.max_true_bit()))
     }
 
+    /// Sets and returns the `row_count` to match the `max_true_bit()`.
+    ///
+    /// NB: Ignores leading `false` bits; so can be "too short".
     pub fn trim_row_count(&mut self) -> usize {
-        let max_row_count = self.max_row_count();
+        let max_true_bit = self.max_true_bit();
         for c in &mut self.columns {
-            c.set_row_count(max_row_count);
+            c.set_row_count(max_true_bit);
         };
-        self.row_count = max_row_count;
-        max_row_count
+        self.row_count = max_true_bit;
+        max_true_bit
     }
 
+    /// Returns the [`Column::column_diff()`] of two specified [`Column`]s of two [`Relation`]s
     pub fn match_columns(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
-        //! `match_columns(self, other)` compares two specified Columns between Relations
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty && other_empty {
+            println!("match_col both empty");
             0
         } else if self_empty {
+            println!("match_col self_empty");
             Column::new().column_diff(&other.columns[col2])
         } else if other_empty {
-            Column::new().column_diff(&self.columns[col1])
+            println!("match_col other_empty");
+            self.columns[col1].column_diff(&Column::new())
         } else {
+            println!("match_col both non-empty");
             self.columns[col1].column_diff(&other.columns[col2])
         }
     }
 
+    /// Optionally returns a partition of the [`Relation`]'s [`Column`]s as a vector of [`XGroup`]s
     pub fn xgroup(&self) -> Option<Vec<XGroup>> {
-        //! `xgroup()` optionally returns a partition of the Relation's Columns as a vector of `XGroup`s
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
@@ -444,11 +515,11 @@ impl<'a> Relation<'a> {
         }
     }
 
+    /// Returns the "kappa" value for a [`Relation`].
+    ///
+    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
     pub fn kappa(&self, max_count: Option<usize>) -> usize {
-        //! `kappa()` returns the `kappa` value for a Relation according to the algorithm in
-        //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
-        //!
-        //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+        // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
             return 0
         } else {
@@ -483,10 +554,11 @@ impl<'a> Relation<'a> {
         }
     }
 
+    /// Returns the bound on the "Relation metric" for "distance" between two [`Relation`]s.
+    ///
+    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
     pub fn rel_dist_bound(&self, other: &Relation) -> usize {
-        //! `rel_dist_bound()` returns the bound on the Relation metric in
-        //! Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690
-        //! NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+        // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
 
         println!("rel1:\n{}\n", self);
         println!("rel2:\n{}\n", other);
@@ -508,12 +580,74 @@ impl<'a> Relation<'a> {
 
         return rel1_count.max(rel2_count) - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
+
+    /// Returns the "weight" of a [`Column`] function from `self` to `other` (represented as `col_matches`).
+    ///
+    /// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
+    ///
+    /// Weight between empty Relations is 0. Weight to an empty Relation
+    /// simply counts ones in `self`, similarly for empty `other`.
+    ///
+    /// Panics if non-empty Relations don't have same `row_count`s or `col_matches` exceeds Column counts of `self` and `other`.
+    pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
+
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        let from_col_count;
+        let to_col_count;
+        let mut col_used;
+        let mut diff= 0;
+        let mut use_count: u32 = 0;
+
+        if self_empty && other_empty {
+            println!("weight both empty");
+            from_col_count = 0;
+            to_col_count = 0;
+        } else if self_empty {
+            println!("weight self_empty");
+            from_col_count = other.columns.len();
+            to_col_count = other.columns.len();
+        } else if other_empty {
+            println!("weight other_empty");
+            from_col_count = self.columns.len();
+            to_col_count = self.columns.len();
+        } else {
+            println!("weight both non-empty");
+            assert_eq!(self.row_count, other.row_count, "Relation::weight() requires non-empty Relations to have same row_count but {} != {}", self.row_count, other.row_count);
+            from_col_count = self.columns.len();
+            to_col_count = other.columns.len();
+        }
+
+        assert_eq!(col_matches.len(), from_col_count, "Relation::weight() Invalid col_match: col_match.len() {} != self.columns.len() {}", col_matches.len(), from_col_count);
+        let col_matches_max = col_matches.iter().max().unwrap();
+        assert!(*col_matches_max < to_col_count, "Relation::weight() Invalid col_match: max Column index {} > image range {}", col_matches_max, to_col_count);
+
+        // clear image of the match in other
+        col_used = vec![0; to_col_count];
+
+        // apply current match
+        for i in 0..from_col_count {
+            diff = diff + self.match_columns(&other, i, col_matches[i]);
+            col_used[col_matches[i]] = 1;
+        }
+
+        // count columns in image
+        if !self_empty {
+            for i in 0..to_col_count {
+                use_count = use_count + col_used[i];
+            }
+        }
+        println!("- diff:{} #col_used:{} use_count:{}", diff, col_used.len(), use_count);
+
+        // apply penalty for unmatched columns
+        return diff + (to_col_count as u32 - use_count)
+    }
 }
 
-// # Traits
-//
-// ## From
 impl From<Vec<Column>> for Relation<'_> {
+    /// Converts a [`Vec<Column>`] into a [`Relation`] if everything has the same `row_count`.
+    ///
+    /// Panics if they don't have the same `row_count`.
     fn from(columns: Vec<Column>) -> Self {
         let row_count = columns[0].row_count;
         assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Column>> for Relation requires all Columns to have same row_count");
@@ -526,10 +660,13 @@ impl From<Vec<Column>> for Relation<'_> {
 }
 
 impl From<Vec<Vec<u8>>> for Relation<'_> {
+    /// Converts a [`Vec<Vec<u8>>`] into a [`Relation`] if all [`Column`]s created from the inner `Vec<u8>` have the same `row_count`.
+    ///
+    /// Panics if the created [`Column`]s don't have the `row_count`.
     fn from(cols: Vec<Vec<u8>>) -> Self {
         let columns: Vec<Column> = cols.into_iter().map(|x| Column::from(x)).collect();
         let row_count = columns[0].row_count;
-        assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Column>> for Relation requires all Columns to have same row_count");
+        assert!(columns.iter().fold(true, |acc, x| acc && (x.row_count == row_count)), "From<Vec<Vec<u8>> for Relation requires the inner Vec<u8> to have same length");
         Relation {
             row_count,
             columns,
@@ -538,19 +675,17 @@ impl From<Vec<Vec<u8>>> for Relation<'_> {
     }
 }
 
-// ## Display
 impl fmt::Display for Relation<'_> {
+    /// Display as a binary matrix of rows from top to bottom and columns from left to right.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
-        for j in 0..self.row_count {
+        for r in 0..self.row_count {
             for c in 0..self.columns.len() {
-                // s.push_str(&format!("{}\n", 4))
-                if self.columns[c].get_bit(j) {
+                if self.columns[c].get_bit(r) {
                     s.push_str("1")
                 } else {
                     s.push_str("0")
                 };
-                // s.push_str(" ");
             }
             s.push_str("\n");
         }
@@ -558,27 +693,70 @@ impl fmt::Display for Relation<'_> {
     }
 }
 
-// ## Sub
-impl Sub for Relation<'_> {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self::Output {
-        let mut new_rel = self.clone();
-        for oc in other.columns {
-            for i in 0..new_rel.columns.len() {
-                if oc == new_rel.columns[i] {
-                    new_rel.columns.remove(i);
-                    break;
-                }
-            }
-        };
-        new_rel
+impl fmt::Binary for Relation<'_> {
+    /// Show the a big-endian binary representation of all [`Column`]s in the [`Relation`], one per line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
+        let mut s = String::from("[");
+        s.push_str(&self.columns.iter().map(|x|format!("{:b}", x)).collect::<Vec<String>>().join(", "));
+        s.push_str("]");
+        write!(f, "{s}")
     }
 }
 
-// Represents an XGrouping
+impl fmt::LowerHex for Relation<'_> {
+    /// Show the a big-endian lower-hexadecimal representation of all [`Column`]s in the [`Relation`], one per line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
+        let mut s = String::from("[");
+        s.push_str(&self.columns.iter().map(|x|format!("{:x}", x)).collect::<Vec<String>>().join(", "));
+        s.push_str("]");
+        write!(f, "{s}")
+    }
+}
+
+impl fmt::UpperHex for Relation<'_> {
+    /// Show the a big-endian upper-hexadecimal representation of all [`Column`]s in the [`Relation`], one per line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
+        let mut s = String::from("[");
+        s.push_str(&self.columns.iter().map(|x|format!("{:X}", x)).collect::<Vec<String>>().join(", "));
+        s.push_str("]");
+        write!(f, "{s}")
+    }
+}
+
+impl Sub for Relation<'_> {
+    type Output = Self;
+
+    /// Multiset difference: one-for-one remove from `self` each [`Column`] that is found in `other`
+    fn sub(self, other: Self) -> Self::Output {
+        assert_eq!(self.row_count, other.row_count, "Relation::sub requires non-empty Relations to have equal row_counts but {} != {}", self.row_count, other.row_count);
+        let mut new_cols = vec![];
+        let mut used_cols = vec![false; self.columns.len()];
+        for (i, sc) in self.columns.iter().enumerate() {
+            for oc in &other.columns {
+                if !used_cols[i] && *sc == *oc {
+                    used_cols[i] = true;
+                    break
+                } else {
+                    new_cols.push(sc.clone())
+                }
+            }
+        };
+        return Relation {
+            row_count: self.row_count,
+            columns: new_cols,
+            x_groups: None,
+        }
+    }
+}
+
+// Represents the "x-group" partition of a [`Relation`]
 //
-// The `XGrouping` of a `Relation` represents the partition of the Relation's Columns by row-overlap. The field `relation` refers to the `Relation`, whose lifetime it shares. The field `partition` collects the individual partitions as `XGroup`s.
+/// A [`Relation`]'s collection of [`Column`]s can be partitioned into an [`XGrouping`] of Columns, where each [`XGroup`] collects [`Column`]s in the [`Relation`] that each share a `true` bit with some other member of the `XGroup`.
+///
+/// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGrouping<'a> {
     relation: &'a Relation<'a>,
@@ -586,8 +764,8 @@ pub struct XGrouping<'a> {
 }
 
 impl XGrouping<'_> {
+    /// Optionally returns a new [`XGrouping`] for the given [`Relation`] as calculated by [`Relation::xgroup()`]
     pub fn new<'a>(rel: &'a Relation) -> Option<XGrouping<'a>> {
-        //! `new(rel)` takes a reference to Relation and optionally returns its `Xgrouping` calculated by [`Relation::xgroup()`]
         match rel.xgroup() {
             None => None,
             Some(xgs) =>
@@ -605,6 +783,7 @@ impl XGrouping<'_> {
 // }
 
 impl fmt::Display for XGrouping<'_> {
+    /// Display the partitioned [`Relation`] as a binary matrix of [`XGroup`]'ed [`Column`]s separated by a column of `' '`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rel = self.relation;
         let xgs = &self.partition;
@@ -640,18 +819,20 @@ impl fmt::Display for XGrouping<'_> {
     }
 }
 
-// Represents an XGroup
+// Represents an "x-group" partition of [`Column`]s in a [`Relation`]
 //
-// Each partition is an `XGroup` collecting Columns sharing a relation (`true`) for some row with at least one other member. , but not with any other Columns in the Relation.
+// Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
+///
+/// See Kenneth P. Ewing ``Bounds for the Distance Between Relations'', arXiv:2105.01690.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGroup {
     pub max: Column,
     pub col_indices: Vec<usize>,
 }
 
+/// Returns a new empty [`XGroup`].
 impl XGroup {
     pub fn new() -> XGroup {
-        //! `new()` creates an empty XGroup
         Default::default()
     }
 }
@@ -693,7 +874,7 @@ mod tests {
         let c0 = Column::new();
         let c1 = Column {
             row_count: 32,
-            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8],
+            bit_field: vec![0x30u8, 0x00u8, 0x00u8, 0x0fu8],
         };
         assert!(c0.is_empty(), "{:?} should be empty", c0);
         assert!(!c1.is_empty(), "{:?} should not be empty", c1);
@@ -701,39 +882,88 @@ mod tests {
 
     #[test]
     fn col_from_vec_works() {
-        let c1a = Column::from(vec![0x3000 as u16, 0x000f as u16]);
+        let c1a = Column::from(vec![0x3000u16, 0x000fu16]);
         let c1b = Column {
             row_count: 32,
-            bit_field: vec![0x30 as u8, 0x00 as u8, 0x00 as u8, 0x0f as u8]
+            bit_field: vec![0x30u8, 0x00u8, 0x00u8, 0x0fu8]
         };
         assert_eq!(c1a, c1b, "{:?} should == {:?}", c1a, c1b)
     }
 
     #[test]
-    fn prints_col_to_hex() {
-        let c1 = Column::from(vec![0x3000 as u16, 0x000f as u16]);
-        let res = c1.to_hex();
-        let want = "{ 30 00 00 0f }";
-        assert_eq!(res, want, "{} doesn't equal {}", res, want);
-    }
-
-    #[test]
     fn sets_and_gets_bit_in_col() {
         let mut c = Column::from(vec![0b00000001u8]);
-        let mut res = c.get_bit(7);
-        let want = true;
-        assert_eq!(res, want, "Gotten bit {} doesn't match {}", res, want);
+        assert_eq!(c.get_bit(7), true, "Column::get_bit[7] failed for {:?}", c);
+        assert_eq!(c.get_bit(6), false, "Column::get_bit[6] failed for {:?}", c);
         c.set_bit(6, true);
-        res = c.get_bit(6);
-        assert_eq!(res, want, "Set bit {} doesn't match {}", res, want);
+        assert_eq!(c.get_bit(6), true, "Column::set_bit[6] failed for {:?}", c);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        assert_eq!(c1.get_bit(2), true, "Column::get_bit[2] failed for {:?}", c1);
+        assert_eq!(c1.get_bit(3), true, "Column::get_bit[3] failed for {:?}", c1);
+        assert_eq!(c1.get_bit(4), false, "Column::get_bit[4] failed for {:?}", c1);
+        assert_eq!(c1.get_bit(27), false, "Column::get_bit[27] failed for {:?}", c1);
+        assert_eq!(c1.get_bit(28), true, "Column::get_bit[28] failed for {:?}", c1);
+        assert_eq!(c1.get_bit(31), true, "Column::get_bit[31] failed for {:?}", c1);
     }
 
     #[test]
-    fn displays_column() {
+    fn col_display() {
         let c = Column::from(vec![0b10000000u8, 0b00000001u8]);
-        let res = format!("{}", c);
-        let want = "1\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n";
-        assert_eq!(res, want, "{} doesn't equal {}", res, want);
+        let mut res = format!("{}", c);
+        let mut want = "1\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n";
+        assert_eq!(res, want, "fmt::Display fails for {:b}", c);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        res = format!("{}", c1);
+        want = "0\n0\n1\n1\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n1\n1\n1\n1\n";
+        assert_eq!(res, want, "fmt::Display fails for {:b}", c1);
+    }
+
+    #[test]
+    fn col_binary() {
+        let c0 = Column::new();
+        let mut res = format!("{:b}", c0);
+        let mut want = "[]";
+        assert_eq!(res, want,"fmt::Binary failed for {:?}", c0);
+        let mut c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        res = format!("{:b}", c1);
+        want = "[00110000, 00000000, 00000000, 00001111]";
+        assert_eq!(res, want,"fmt::Binary failed for {:?}", c1);
+        c1.trim_row_count();
+        res = format!("{:b}", c1);
+        want = "[00110000, 00000000, 00000000, 1111]";
+        assert_eq!(res, want,"fmt::Binary failed for {:?}", c1);
+    }
+
+    #[test]
+    fn col_lower_hex() {
+        let c0 = Column::new();
+        let mut res = format!("{:x}", c0);
+        let mut want = "[]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c0);
+        let mut c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        res = format!("{:x}", c1);
+        want = "[30, 00, 00, 0f]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c1);
+        c1.trim_row_count();
+        res = format!("{:x}", c1);
+        want = "[30, 00, 00, f]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c1);
+    }
+
+    #[test]
+    fn col_upper_hex() {
+        let c0 = Column::new();
+        let mut res = format!("{:X}", c0);
+        let mut want = "[]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c0);
+        let mut c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        res = format!("{:X}", c1);
+        want = "[30, 00, 00, 0F]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c1);
+        c1.trim_row_count();
+        res = format!("{:X}", c1);
+        want = "[30, 00, 00, F]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", c1);
     }
 
     #[test]
@@ -747,10 +977,10 @@ mod tests {
         assert!(!zero.is_disjoint(&zero), "Fails to see that zeros are NOT disjoint:\n left: {:?}\nright: {:?}", zero, zero);
         assert!(!empty.is_disjoint(&zero), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", empty, zero);
         assert!(!zero.is_disjoint(&empty), "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}", zero, empty);
-        assert!(c1.is_disjoint(&empty), "Fails to see that {} is disjoint from empty {}", c1.to_hex(), empty.to_hex());
-        assert!(c1.is_disjoint(&zero), "Fails to see that {} is disjoint from zero {}", c1.to_hex(), zero.to_hex());
-        assert!(c1.is_disjoint(&c2), "Fails to see that {} is disjoint from {} for c1 {:?} and c2 {:?}", c1.to_hex(), c2.to_hex(), c1, c2);
-        assert!(!c2.is_disjoint(&c3), "Fails to see that {} is NOT disjoint from {} for c1 {:?} and c2 {:?}", c2.to_hex(), c3.to_hex(), c1, c2);
+        assert!(c1.is_disjoint(&empty), "Fails to see that {:?} is disjoint from empty {:?}", c1, empty);
+        assert!(c1.is_disjoint(&zero), "Fails to see that {:?} is disjoint from zero {:?}", c1, zero);
+        assert!(c1.is_disjoint(&c2), "Fails to see that {:?} is disjoint from {:?} for c1 {:?} and c2 {:?}", c1, c2, c1, c2);
+        assert!(!c2.is_disjoint(&c3), "Fails to see that {:?} is NOT disjoint from {:?} for c1 {:?} and c2 {:?}", c2, c3, c1, c2);
     }
 
     #[test]
@@ -767,6 +997,9 @@ mod tests {
         assert_eq!(res, want, "\nc1.column_diff(empty) expected {} but got {} for c1 {:?}", want, res, c1);
         res = c0.column_diff(&c1);
         assert_eq!(res, want, "\nempty.column_diff(c1) expected {} but got {} for c1 {:?}", want, res, c1);
+
+        let one = Column {row_count: 1, bit_field: vec![0b1u8]};
+        assert_eq!(one.column_diff(&c0), 1, "\ncol_diff {:?} v. empty {:?} expected {}", one, c0, 1);
 
         let r1_0 = Column::from(vec![0b1000u8]);
         let r1_1 = Column::from(vec![0b1001u8]);
@@ -817,31 +1050,33 @@ mod tests {
     }
 
     #[test]
-    fn prints_rel_to_hex() {
-        let r0 = Relation::new();
-        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
-        let r1 = Relation {
-            row_count: 32,
-            columns: vec![c1.clone(), c2.clone()],
-            x_groups: None
-        };
-        let mut res = r0.to_hex();
-        let mut want = String::new();
-        assert_eq!(res, want, "{} doesn't equal {}", res, want);
-        res = r1.to_hex();
-        want = format!("Col 0: {}\nCol 1: {}", &c1.to_hex(), &c2.to_hex());
-        assert_eq!(res, want, "{} doesn't equal {}", res, want);
+    fn rel_display() {
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            ]);
+        let res = format!("{}", r1);
+        let want = String::from("00\n00\n10\n10\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n10\n10\n10\n10\n");
+        assert_eq!(res, want, "\nfmt::Display failed for r1 {:b}", r1);
     }
 
     #[test]
-    fn displays_relation() {
-        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
-        let r1 = Relation::from(vec![c1.clone(), c2.clone()]);
-        let res = format!("{}", r1);
-        let want = String::from("00\n00\n10\n10\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n00\n10\n10\n10\n10\n");
-        assert_eq!(res, want, "{} should == {} for r1 {:?}", res, want, r1)
+    fn rel_lower_hex() {
+        let r0 = Relation::new();
+        let mut r1 = Relation::from(vec![
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            ]);
+        let mut res = format!("{:x}", r0);
+        let mut want = "[]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", r0);
+        res = format!("{:x}", r1);
+        want = "[[30, 00, 00, 0f], [00, 00, 00, 00]]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", r1);
+        r1.trim_row_count();
+        res = format!("{:x}", r1);
+        want = "[[30, 00, 00, f], [00, 00, 00, 0]]";
+        assert_eq!(res, want,"fmt::LowerHex failed for {:?}", r1);
     }
 
     #[test]
@@ -858,14 +1093,22 @@ mod tests {
 
     #[test]
     fn rel_sub_works() {
-        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
-        let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
-        let r1 = Relation::from(vec![c1.clone(), c1.clone(), c2.clone(), c3.clone()]);
-        let r2 = Relation::from(vec![c1.clone(), c2.clone()]);
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
+        let r2 = Relation::from(vec![
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x0000u16, 0x0000u16]),
+        ]);
+        let r3 = Relation::from(vec![
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
         let res = r1.clone() - r2.clone();
-        let want = Relation::from(vec![c1.clone(), c3.clone()]);
-        assert_eq!(res, want, "\nDetail:\n {:?}\n - {:?}\n should be {:?}\n but is    {:?}", r1, r2, want, res)
+        assert_eq!(res, r3, "\nRelation::sub fails for\n lhs:{:b}\n rhs:{:b}\nshould be {:b}\ngot       {:b}", r1, r2, r3, res);
     }
 
     #[test]
@@ -896,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    fn displays_xgrouping() {
+    fn xgrouping_display() {
         let r = Relation::from(vec![
             Column::from(vec![0b0000u8]),
             Column::from(vec![0b1000u8]),
@@ -1034,7 +1277,28 @@ mod tests {
 
     #[test]
     fn weight_works() {
-        // let ex1_r = Relation::new();
+        let ex1_r1 = Relation {row_count: 1, columns: vec![Column { row_count: 1, bit_field: vec![0b1u8] }], x_groups: None };
+        let ex1_r2 = Relation::new();
+        let ex1_matches = vec![0];
+        assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nweight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
+
+        let ex2_r1 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1010u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0011u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0101u8]),
+            ]);
+        // ex2_r2.trim_row_count();
+        let ex2_matches12 = vec![0, 1, 1, 2];
+        let ex2_matches21 = vec![1, 2, 0];
+        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nweight of {:?} for\n {:b}\n -> {:b}\n", ex2_matches12, ex2_r1, ex2_r2);
+        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nweight of {:?} for\n {:b}\n -> {:b}\n", ex2_matches21, ex2_r2, ex2_r1);
     }
 
     #[test]
@@ -1053,15 +1317,15 @@ mod tests {
     }
 
     #[test]
-    fn col_max_row_count_works() {
+    fn col_max_true_bit_works() {
         let mut c = Column::new();
-        assert_eq!(c.max_row_count(), 0," for {:?}", c);
+        assert_eq!(c.max_true_bit(), 0," for {:?}", c);
         c = Column::from(vec![0b11111111u8]);
-        assert_eq!(c.max_row_count(), 8," for {:?}", c);
+        assert_eq!(c.max_true_bit(), 8," for {:?}", c);
         c = Column::from(vec![0b1111u8, 0b111u8]);
-        assert_eq!(c.max_row_count(), 11," for {:?}", c);
+        assert_eq!(c.max_true_bit(), 11," for {:?}", c);
         c = Column::from(vec![0b1111u32, 0b1111u32]);
-        assert_eq!(c.max_row_count(), 60," for {:?}", c);
+        assert_eq!(c.max_true_bit(), 60," for {:?}", c);
     }
 
     #[test]
@@ -1073,15 +1337,15 @@ mod tests {
     }
 
     #[test]
-    fn rel_max_row_count_works() {
+    fn rel_max_true_bit_works() {
         let r0 = Relation::from(vec![Column::new()]);
-        assert_eq!(r0.max_row_count(), 0," for {:?}", r0);
+        assert_eq!(r0.max_true_bit(), 0," for {:?}", r0);
         let r1 = Relation::from(vec![Column::from(vec![0b11111111u8])] );
-        assert_eq!(r1.max_row_count(), 8," for {:?}", r1);
+        assert_eq!(r1.max_true_bit(), 8," for {:?}", r1);
         let r2 = Relation::from(vec![Column::from(vec![0b1111u8, 0b111u8])] );
-        assert_eq!(r2.max_row_count(), 11," for {:?}", r2);
+        assert_eq!(r2.max_true_bit(), 11," for {:?}", r2);
         let r3 = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])] );
-        assert_eq!(r3.max_row_count(), 60," for {:?}", r3);
+        assert_eq!(r3.max_true_bit(), 60," for {:?}", r3);
     }
 
     #[test]
