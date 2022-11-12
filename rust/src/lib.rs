@@ -10,7 +10,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// Lists end on word boundaries; so modulus resides in the low end of last
 /// integer in the list for each column.
 ///
-/// The default `Column` is empty, with `row_count` == 0 and empty [`bit_fied`. Zero `Column` is also empty but has a specified positive [`row_cout`.
+/// The default `Column` is empty, with `row_count` == 0 and empty [`bit_field`. Zero `Column` is also empty but has a specified positive [`row_count`.
 ///
 /// # Examples
 ///
@@ -51,46 +51,50 @@ impl Column {
     }
 
     /// Returns the `bool` value of the `n`th bit.
+    ///
+    /// Panics if row_count == 0 or index `n` out of bounds.
     pub fn get_bit(&self, n:usize) -> bool {
         assert!(self.row_count > 0, "Column::get_bit requires row_count > 0");
         assert!(n < self.row_count, "Column::get_bit index {n} outside range: 0..{}", self.row_count);
-        const LO_ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
-        const HI_ROW_MASK: [u8; 8] = [0b00000001u8, 0b00000010u8, 0b00000100u8, 0b00001000u8, 0b00010000u8, 0b00100000u8, 0b01000000u8, 0b10000000u8];
+        const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
+        let the_offset = (self.bit_field.len() * u8::BITS as usize - self.row_count) % u8::BITS as usize;
+
         if self.bit_field.len() == 0 {
             return false
-        } else if the_int < self.bit_field.len() {
-            return self.bit_field[the_int] & LO_ROW_MASK[the_bit] > 0
+        } else if the_int < self.bit_field.len() - 1 {
+            return self.bit_field[the_int] & ROW_MASK[the_bit] > 0
         } else {
-            return self.bit_field[the_int] & HI_ROW_MASK[the_bit] > 0
+            return self.bit_field[the_int] & ROW_MASK[the_offset + the_bit] > 0
         }
     }
 
-    /// Sets the `n`th bit to the given `bool` value, pushing any needed zeros onto the `bit_field`.
+    /// Sets the `n`th bit to the given `bool` value.
+    ///
+    /// Panics if row_count == 0 or index `n` out of bounds.
     pub fn set_bit(&mut self, n:usize, v: bool) {
         //! Panics if row_count == 0 or bit index outside range 0..row_count
         assert!(self.row_count > 0, "Column::set_bit requires row_count > 0");
         assert!(n < self.row_count, "Column::set_bit index {n} outside range: 0..{}", self.row_count);
-        const LO_BIT_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
-        const HI_BIT_MASK: [u8; 8] = [0b00000001u8, 0b00000010u8, 0b00000100u8, 0b00001000u8, 0b00010000u8, 0b00100000u8, 0b01000000u8, 0b10000000u8];
+        const ROW_MASK: [u8; 8] = [0b10000000u8, 0b01000000u8, 0b00100000u8, 0b00010000u8, 0b00001000u8, 0b00000100u8, 0b00000010u8, 0b00000001u8];
         let the_int = n / u8::BITS as usize;
         let the_bit = n % u8::BITS as usize;
-        let the_mask;
-        let need_ints = the_int.checked_sub(self.bit_field.len()).unwrap_or(0);
-        for _ in 0..need_ints {
-            self.bit_field.push(0u8);
-        };
-        if the_int < self.bit_field.len() {
-            the_mask = LO_BIT_MASK;
+        let the_offset = (self.bit_field.len() * u8::BITS as usize - self.row_count) % u8::BITS as usize;
+
+        if the_int < self.bit_field.len() - 1 {
+            if v == true {
+                self.bit_field[the_int] = self.bit_field[the_int] | ROW_MASK[the_bit];
+            } else {
+                self.bit_field[the_int] = self.bit_field[the_int] & !ROW_MASK[the_bit];
+            }
         } else {
-            the_mask = HI_BIT_MASK;
-        };
-        if v == true {
-            self.bit_field[the_int] = self.bit_field[the_int] | the_mask[the_bit];
-        } else {
-            self.bit_field[the_int] = self.bit_field[the_int] & !the_mask[the_bit];
-        }; // keep 0 with |0, &0, &1, ^1; keep 1 with |0, |1, &1, ^0; flip 0 with |1, &0, ^1; flip 1 with &0, ^0
+            if v == true {
+                self.bit_field[the_int] = self.bit_field[the_int] | ROW_MASK[the_offset + the_bit];
+            } else {
+                self.bit_field[the_int] = self.bit_field[the_int] & !ROW_MASK[the_offset + the_bit];
+            }
+        }
     }
 
     /// Returns the `row_count`.
@@ -274,7 +278,11 @@ impl fmt::Binary for Column {
         let mut s = String::from("[");
         s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:08b}", x)).collect::<Vec<String>>().join(", "));
         if rest_bits > 0 {
-            s.push_str(&format!(", {:b}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            if whole_ints == 0 {
+                s.push_str(&format!("{:b}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            } else {
+                s.push_str(&format!(", {:b}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            }
         }
         s.push_str("]");
         write!(f, "{s}")
@@ -290,7 +298,11 @@ impl fmt::LowerHex for Column {
         let mut s = String::from("[");
         s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:02x}", x)).collect::<Vec<String>>().join(", "));
         if rest_bits > 0 {
-            s.push_str(&format!(", {:x}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            if whole_ints == 0 {
+                s.push_str(&format!("{:x}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            } else {
+                s.push_str(&format!(", {:x}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            }
         }
         s.push_str("]");
         write!(f, "{s}")
@@ -306,7 +318,11 @@ impl fmt::UpperHex for Column {
         let mut s = String::from("[");
         s.push_str(&self.bit_field.iter().take(whole_ints).map(|x|format!("{:02X}", x)).collect::<Vec<String>>().join(", "));
         if rest_bits > 0 {
-            s.push_str(&format!(", {:X}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            if whole_ints == 0 {
+                s.push_str(&format!("{:X}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            } else {
+                s.push_str(&format!(", {:X}", self.bit_field[whole_ints] & REST_MASK[rest_bits]));
+            }
         }
         s.push_str("]");
         write!(f, "{s}")
@@ -897,19 +913,55 @@ mod tests {
     }
 
     #[test]
-    fn sets_and_gets_bit_in_col() {
-        let mut c = Column::from(vec![0b00000001u8]);
-        assert_eq!(c.get_bit(7), true, "Column::get_bit[7] failed for {:?}", c);
-        assert_eq!(c.get_bit(6), false, "Column::get_bit[6] failed for {:?}", c);
-        c.set_bit(6, true);
-        assert_eq!(c.get_bit(6), true, "Column::set_bit[6] failed for {:?}", c);
-        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        assert_eq!(c1.get_bit(2), true, "Column::get_bit[2] failed for {:?}", c1);
-        assert_eq!(c1.get_bit(3), true, "Column::get_bit[3] failed for {:?}", c1);
-        assert_eq!(c1.get_bit(4), false, "Column::get_bit[4] failed for {:?}", c1);
-        assert_eq!(c1.get_bit(27), false, "Column::get_bit[27] failed for {:?}", c1);
-        assert_eq!(c1.get_bit(28), true, "Column::get_bit[28] failed for {:?}", c1);
-        assert_eq!(c1.get_bit(31), true, "Column::get_bit[31] failed for {:?}", c1);
+    #[should_panic]
+    fn col_get_bit_empty_panics() {
+        Column::new().get_bit(5);
+    }
+
+    #[test]
+    fn col_get_bit_works() {
+        // let c0 = Column::new();
+        let mut c1 = Column::from(vec![0x30u8, 0x00u8, 0x00u8, 0x0fu8]);
+        assert_eq!(c1.get_bit(1), false, "\nColumn::get_bit({}) fails for\n{:b}", 2, c1);
+        assert_eq!(c1.get_bit(2), true, "\nColumn::get_bit({}) fails for\n{:b}", 2, c1);
+        assert_eq!(c1.get_bit(5), false, "\nColumn::get_bit({}) fails for\n{:b}", 5, c1);
+        assert_eq!(c1.get_bit(27), false, "\nColumn::get_bit({}) fails for\n{:b}", 27, c1);
+        assert_eq!(c1.get_bit(28), true, "\nColumn::get_bit({}) fails for\n{:b}", 28, c1);
+        assert_eq!(c1.get_bit(31), true, "\nColumn::get_bit({}) fails for\n{:b}", 31, c1);
+        let trim = c1.trim_row_count();
+        assert_eq!(c1.get_bit(1), false, "\nColumn::get_bit({}) fails for trimmed to 0..{}\n{:b}", 2, trim, c1);
+        assert_eq!(c1.get_bit(2), true, "\nColumn::get_bit({}) fails for trimmed to 0..{}\n{:b}", 2, trim, c1);
+        assert_eq!(c1.get_bit(5), false, "\nColumn::get_bit({}) fails for trimmed to 0..{}\n{:b}", 5, trim, c1);
+        assert_eq!(c1.get_bit(23), false, "\nColumn::get_bit({}) fails for trimmed to 0..{}\n{:b}", 23, trim, c1);
+        assert_eq!(c1.get_bit(27), true, "\nColumn::get_bit({}) fails for trimmed to 0..{}\n{:b}", 27, trim, c1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn col_set_bit_empty_panics() {
+        let mut c0 = Column::new();
+        c0.set_bit(12, true);
+    }
+
+    #[test]
+    fn col_set_bit_works() {
+        let mut c1 = Column::from(vec![0x30u8, 0x00u8, 0x00u8, 0x0fu8]);
+        c1.set_bit(0, true);
+        assert_eq!(c1.get_bit(0), true, "\nColumn::set_bit({}) {} fails, got\n{:b}", 0, true, c1);
+        c1.set_bit(2, false);
+        assert_eq!(c1.get_bit(2), false, "\nColumn::set_bit({}) {} fails, got\n{:b}", 2, false, c1);
+        c1.set_bit(12, false);
+        assert_eq!(c1.get_bit(12), false, "\nColumn::set_bit({}) {} fails, got\n{:b}", 2, false, c1);
+
+        let trim = c1.trim_row_count();
+        c1.set_bit(23, true);
+        assert_eq!(c1.get_bit(23), true, "Column::set_bit({}) {} fails for trimmed 0..{}\n{:b}", 0, false, trim, c1);
+        c1.set_bit(2, true);
+        assert_eq!(c1.get_bit(2), true, "Column::set_bit({}) {} fails for trimmed 0..{}\n{:b}", 2, true, trim, c1);
+        c1.set_bit(5, false);
+        assert_eq!(c1.get_bit(5), false, "Column::set_bit({}) {} fails for trimmed 0..{}\n{:b}", 5, false, trim, c1);
+        c1.set_bit(27, true);
+        assert_eq!(c1.get_bit(27), true, "Column::set_bit({}) {} fails for trimmed 0..{}\n{:b}", 27, true, trim, c1);
     }
 
     #[test]
@@ -1290,14 +1342,14 @@ mod tests {
         let ex1_matches = vec![0];
         assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nweight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
 
-        let ex2_r1 = Relation::from(vec![
+        let mut ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1010u8]),
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b0011u8]),
         ]);
         // ex2_r1.trim_row_count();
-        let ex2_r2 = Relation::from(vec![
+        let mut ex2_r2 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b0101u8]),
@@ -1305,8 +1357,8 @@ mod tests {
         // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
         let ex2_matches21 = vec![1, 2, 0];
-        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nweight of {:?} for\n {:b}\n -> {:b}\n", ex2_matches12, ex2_r1, ex2_r2);
-        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nweight of {:?} for\n {:b}\n -> {:b}\n", ex2_matches21, ex2_r2, ex2_r1);
+        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nweight of {:?} for\n{:x} ->\n{:x}\n", ex2_matches12, ex2_r1, ex2_r2);
+        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nweight of {:?} for\n{:x} ->\n{:x}\n", ex2_matches21, ex2_r2, ex2_r1);
     }
 
     #[test]
