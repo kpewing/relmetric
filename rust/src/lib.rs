@@ -664,63 +664,64 @@ impl<'a> Relation<'a> {
     ///
     /// Given a function *f* that matches each [`Column`] in one [`Relation`] *r1* to a some [`Column`] in the other [`Relation`] *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
     ///
-    /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] simply counts ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
+    /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] returns the highest row-count of ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
     ///
     /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
     pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
-
-        return *self.match_columns(other, col_matches).bitxor(self.clone()).columns.iter().fold(vec![0_u32; self.row_count], |mut acc, c| { for r in 0..c.row_count { if !c.get_bit(r) { acc[r] += 1}}; acc}).iter().max().unwrap()
-
-        // let self_empty = self.is_empty();
-        // let other_empty = other.is_empty();
-        // let from_col_count;
-        // let to_col_count;
-        // let mut col_used;
-        // let mut diff= 0;
-        // let mut use_count: u32 = 0;
-
-        // if self_empty && other_empty {
-        //     println!("weight both empty");
-        //     from_col_count = 0;
-        //     to_col_count = 0;
-        // } else if self_empty {
-        //     println!("weight self_empty");
-        //     from_col_count = other.columns.len();
-        //     to_col_count = other.columns.len();
-        // } else if other_empty {
-        //     println!("weight other_empty");
-        //     from_col_count = self.columns.len();
-        //     to_col_count = self.columns.len();
-        // } else {
-        //     println!("weight both non-empty");
-        //     assert_eq!(self.row_count, other.row_count, "Relation::weight() requires non-empty Relations to have same row_count but {} != {}", self.row_count, other.row_count);
-        //     from_col_count = self.columns.len();
-        //     to_col_count = other.columns.len();
-        // }
-
-        // assert_eq!(col_matches.len(), from_col_count, "Relation::weight() Invalid col_match: col_match.len() {} != self.columns.len() {}", col_matches.len(), from_col_count);
-        // let col_matches_max = col_matches.iter().max().unwrap();
-        // assert!(*col_matches_max < to_col_count, "Relation::weight() Invalid col_match: max Column index {} > image range {}", col_matches_max, to_col_count);
-
-        // // clear image of the match in other
-        // col_used = vec![0; to_col_count];
-
-        // // apply the match
-        // for i in 0..from_col_count {
-        //     diff = diff + self.match_columns(&other, i, col_matches[i]);
-        //     col_used[col_matches[i]] = 1;
-        // }
-
-        // count columns in image
-        // if !self_empty {
-        //     for i in 0..to_col_count {
-        //         use_count = use_count + col_used[i];
-        //     }
-        // }
-        // println!("- diff:{} #col_used:{} use_count:{}", diff, col_used.len(), use_count);
-
-        // // apply penalty for unmatched columns
-        // return diff + (to_col_count as u32 - use_count)
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        if self_empty & other_empty {
+            println!("weight both empty");
+            return 0
+        } else if self_empty {
+            println!("weight self_empty");
+            return *other.columns.iter()
+                .fold(
+                    vec![0_u32; other.row_count],
+                    |mut acc, c| {
+                        for r in 0..other.row_count {
+                            if c.get_bit(r) {acc[r] += 1}
+                        };
+                        acc
+                    })
+                .iter().max().unwrap();
+        } else if other_empty {
+            println!("weight other_empty");
+            return *self.columns.iter()
+                .fold(
+                    vec![0_u32; self.row_count],
+                    |mut acc, c| {
+                        for r in 0..self.row_count {
+                            if c.get_bit(r) {acc[r] += 1}
+                        };
+                        acc
+                    })
+                .iter().max().unwrap();
+        } else {
+            let used_count = col_matches.iter()
+            .fold(
+                vec![0u32;other.columns.len()],
+                |mut acc, m| {
+                    acc[*m] = acc[*m] | 1;
+                    acc
+                })
+                .iter().sum::<u32>();
+            let penalty = other.columns.len() as u32 - used_count;
+            let image = self.match_columns(other, col_matches);
+            let bitxor_image = image.clone().bitxor(self.clone());
+            let max_row_diff = *bitxor_image.columns.iter()
+                .fold(
+                    vec![0_u32; self.row_count],
+                    |mut acc, c| {
+                        for r in 0..self.row_count {
+                            if c.get_bit(r) {acc[r] += 1}
+                        };
+                        acc
+                    })
+                .iter().max().unwrap();
+            println!("weight neither empty, penalty:{} max_row_diff:{}\nimage:{:b}\nbitxor_image:{:b}", penalty, max_row_diff, image, bitxor_image);
+            return penalty + max_row_diff
+        }
     }
 }
 
@@ -1561,7 +1562,9 @@ mod tests {
         let ex1_r1 = Relation {row_count: 1, columns: vec![Column { row_count: 1, bit_field: vec![0b1u8] }], x_groups: None };
         let ex1_r2 = Relation::new();
         let ex1_matches = vec![0];
-        assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nEx 1: weight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
+        let ex1_res = ex1_r1.weight(&ex1_r2, &ex1_matches);
+        let ex1_want = 1;
+        assert_eq!(ex1_res, ex1_want, "\nRelation::weight fails Ex 1 with col_matches[{:?}] for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
 
         let ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
@@ -1577,9 +1580,14 @@ mod tests {
             ]);
         // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
+        let ex2_res12 = ex2_r1.weight(&ex2_r2, &ex2_matches12);
+        let ex2_want12 = 1;
+        assert_eq!(ex2_res12, ex2_want12, "\nRelation::weight fails Ex 2 r1->r2 with col_matches[{:?}] for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+
         let ex2_matches21 = vec![1, 2, 0];
-        assert_eq!(ex2_r1.weight(&ex2_r2, &ex2_matches12), 1, "\nEx 2: weight of {:?} for\n{:x} -> {:x}\n", ex2_matches12, ex2_r1, ex2_r2);
-        assert_eq!(ex2_r2.weight(&ex2_r1, &ex2_matches21), 2, "\nEx 2: weight of {:?} for\n{:x} -> {:x}\n", ex2_matches21, ex2_r2, ex2_r1);
+        let ex2_res21 = ex2_r2.weight(&ex2_r1, &ex2_matches21);
+        let ex2_want21 = 2;
+        assert_eq!(ex2_res21, ex2_want21, "\nRelation::weight fails Ex 2 r2->r1 with col_matches[{:?}] for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
     }
 
     #[test]
