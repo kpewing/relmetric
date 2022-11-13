@@ -66,7 +66,7 @@ use std::{
 };
 use byteorder::{BigEndian, WriteBytesExt};
 
-/// Represents a column in a Relation.
+/// Represents the relations one item in one set has with all items of the other set in a [`Relation`].
 ///
 /// Each is represented by a list of [`u8`] integers in big-endian order.
 /// Lists end on word boundaries; so the modulus resides in the low end of last integer in the list for each column.
@@ -75,7 +75,7 @@ use byteorder::{BigEndian, WriteBytesExt};
 ///
 /// A zero `Column` has a positive `row_count` and 0s in the `bit_field`, so is *not* empty.
 ///
-/// Two [`Column`]s are *disjoint* if they do not share `true` bit in any row. Thus empty and zero [`Column`]s are all *not* disjoint from each other, since they share no `true` bit in any row.
+/// Two [`Column`]s are [*disjoint*](Column::is_disjoint()) if they do not share `true` bit in any row. Thus [empty](Column::is_empty()) and [zero](Column::is_zero()) [`Column`]s are all *not* disjoint from each other, since they share no `true` bit in any row.
 ///
 /// # Examples
 ///
@@ -141,7 +141,7 @@ impl Column {
 
     /// Returns the `bool` value of the `n`th bit.
     ///
-    /// Panics if row_count == 0 or index `n` out of bounds.
+    /// Panics if `row_count` == 0 or the index `n` is out of bounds.
     pub fn get_bit(&self, n: usize) -> bool {
         assert!(self.row_count > 0, "Column::get_bit requires row_count > 0");
         assert!(
@@ -175,7 +175,7 @@ impl Column {
 
     /// Sets the `n`th bit to the given `bool` value.
     ///
-    /// Panics if row_count == 0 or index `n` out of bounds.
+    /// Panics if `row_count` == 0 or the index `n` is out of bounds.
     pub fn set_bit(&mut self, n: usize, v: bool) {
         //! Panics if row_count == 0 or bit index outside range 0..row_count
         assert!(self.row_count > 0, "Column::set_bit requires row_count > 0");
@@ -216,7 +216,7 @@ impl Column {
 
     /// Returns 1 + the highest row index with a `true` bit.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short".
+    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].
     pub fn max_true_bit(&self) -> usize {
         let n = self.bit_field.len();
         let mut res = n * u8::BITS as usize;
@@ -235,7 +235,7 @@ impl Column {
 
     /// Sets and returns the `row_count` to match the `max_true_bit()`.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short".
+    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].
     pub fn trim_row_count(&mut self) -> usize {
         self.set_row_count(self.max_true_bit())
     }
@@ -245,16 +245,16 @@ impl Column {
         self.row_count == 0 || self.bit_field.is_empty()
     }
 
-    /// Returns `true` iff `row_count` > 0 and `bit_field` all 0u8.
+    /// Returns `true` iff `row_count` > 0 and `bit_field` is all `0u8`.
     pub fn is_zero(&self) -> bool {
         self.row_count > 0 && self.bit_field.iter().all(|&x| x == 0)
     }
 
     /// Returns whether two [`Column`]s are disjoint by rows.
     ///
-    /// True unless `self` and `other` share a `true` bit in some row.
+    /// `true` unless `self` and `other` share a `true` bit in some row.
     ///
-    /// NB: Unlike the `lua` version, empties / zeros are *not* disjoint from each other and *are* disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
+    /// NB: Unlike the `lua` version, [`empty`](Column::is_empty()) and [`zero`](Column::is_zero()) [`Column`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](Column::is_empty()) and non-[`zero`](Column::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
     pub fn is_disjoint(&self, other: &Column) -> bool {
         if self.is_empty() || self.is_zero() {
             if other.is_empty() || other.is_zero() {
@@ -287,7 +287,7 @@ impl Column {
         }
     }
 
-    /// Counts the differences of two Columns
+    /// Counts the differences of two [`Column`]s.
     ///
     /// Panics if non-empty [`Column`]s have different `row_count`s or `bit_field` lengths.
     pub fn column_diff(&self, other: &Column) -> u32 {
@@ -633,11 +633,11 @@ impl BitXor for Column {
     }
 }
 
-/// Represents a Relation
+/// Represents a *binary relation* between two arbitrary sets *X* and *Y* as a collection of [`Column`]s of bits.
 ///
-/// A binary matrix represented as a collection of [`Column`]s with the same `row_count`. A `true` bit in any Row *x* and Column *y* indicates a "relation" between *x* and *y*.
+/// A `true` bit in any row *x* &in; *X* of [`Column`] *y* &in; *Y* indicates a "relation" between *x* and *y*.
 ///
-/// The default Relation is empty, with `row_count` == 0 and empty collection of Columns.
+/// The default Relation is [`empty`](Column::is_empty()), with `row_count` == 0 and an empty collection of [`Column`]s.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Relation<'a> {
     /// The number of rows of all [`Column`]s of this [`Relation`].
@@ -654,7 +654,7 @@ impl<'a> Relation<'a> {
         Default::default()
     }
 
-    /// Returns a zero [`Relation`] with given `row_count` and number of zero[`Column`]s
+    /// Returns a zero [`Relation`] with given `row_count` and given number of zero [`Column`]s.
     pub fn zero(row_count: usize, col_count: usize) -> Relation<'a> {
         Relation {
             row_count,
@@ -684,6 +684,8 @@ impl<'a> Relation<'a> {
     }
 
     /// Replaces the [`Relation`]'s `n`'th [`Column`] with `v`, pushing any needed [zero Columns](`Column::zero()`), and resets the private `x_groups` to `None`.
+    ///
+    /// Can be used to extend the [`Relation`] with [`zero`](Column::is_zero()) [`Column`]s.
     ///
     /// Panics if non-empty `self` and `v` have different `row_count`s.
     pub fn set_col(&mut self, n: usize, v: Column) {
@@ -722,7 +724,7 @@ impl<'a> Relation<'a> {
 
     /// Returns the index of the highest `true` bit of its [`Column`]s.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short".
+    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.
     pub fn max_true_bit(&self) -> usize {
         self.columns
             .iter()
@@ -731,7 +733,7 @@ impl<'a> Relation<'a> {
 
     /// Sets and returns the `row_count` to match the `max_true_bit()`.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short".
+    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.
     pub fn trim_row_count(&mut self) -> usize {
         let max_true_bit = self.max_true_bit();
         for c in &mut self.columns {
@@ -741,26 +743,7 @@ impl<'a> Relation<'a> {
         max_true_bit
     }
 
-    /// Returns the [`Column::column_diff()`] of two specified [`Column`]s of two [`Relation`]s
-    pub fn match_column_old(&self, other: &Relation, col1: usize, col2: usize) -> u32 {
-        let self_empty = self.is_empty();
-        let other_empty = other.is_empty();
-        if self_empty && other_empty {
-            println!("match_col both empty");
-            0
-        } else if self_empty {
-            println!("match_col self_empty");
-            Column::new().column_diff(&other.columns[col2])
-        } else if other_empty {
-            println!("match_col other_empty");
-            self.columns[col1].column_diff(&Column::new())
-        } else {
-            println!("match_col both non-empty");
-            self.columns[col1].column_diff(&other.columns[col2])
-        }
-    }
-
-    /// Optionally returns a partition of the [`Relation`]'s [`Column`]s as a vector of [`XGroup`]s
+    /// Returns an `Some(XGrouping)`[`XGrouping`] partition of the [`Relation`]'s [`Column`]s or `None` if the [`Relation`] is [`empty`](Relation::is_empty()).
     pub fn xgroup(&self) -> Option<Vec<XGroup>> {
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
@@ -902,9 +885,9 @@ impl<'a> Relation<'a> {
             - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21);
     }
 
-    /// Returns a new [`Relation`] resulting from applying `col_matches` between `self` and `other`
+    /// Returns a new [`Relation`] resulting from applying `col_matches` between `self` and `other`.
     ///
-    /// Panics if both `self` and `other` are non-empty but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
+    /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
     pub fn match_columns(&self, other: &Relation<'_>, col_matches: &Vec<usize>) -> Relation<'a> {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
@@ -1290,8 +1273,8 @@ impl Sub for Relation<'_> {
     }
 }
 
-// Represents the "x-group" partition of a [`Relation`]
-//
+/// Represents the partition of a [`Relation`] into [`XGroup`]s.
+///
 /// A [`Relation`]'s collection of [`Column`]s can be partitioned into an [`XGrouping`] of Columns, where each [`XGroup`] collects [`Column`]s in the [`Relation`] that each share a `true` bit with some other member of the `XGroup`.
 ///
 /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
@@ -1313,14 +1296,6 @@ impl XGrouping<'_> {
         }
     }
 }
-
-// impl Index<usize> for XGrouping<'_> {
-//     type Output = &XGroup;
-
-//     fn index(&self, idx: usize) -> Self::Output {
-//         &self.partition[idx]
-//     }
-// }
 
 impl fmt::Display for XGrouping<'_> {
     /// Display the partitioned [`Relation`] as a binary matrix of [`XGroup`]'ed [`Column`]s separated by a column of `' '`.
@@ -1359,9 +1334,9 @@ impl fmt::Display for XGrouping<'_> {
     }
 }
 
-// Represents an "x-group" partition of [`Column`]s in a [`Relation`]
-//
-// Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
+/// Represents an *x-group* of [`Column`]s that are [`Column::is_disjoint`] with all other [`Column`]s in the [`Relation`].
+///
+/// Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
 ///
 /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1385,7 +1360,7 @@ impl Index<usize> for XGroup {
     }
 }
 
-/// An [`Iterator`] of matches between [`Column`]s of two [`Relation`]s.
+/// Represents a *function* between [`Relation`]s as an [`Iterator`] of matches between [`Column`]s.
 ///
 /// Each call to `next()` returns a new [`Vec`] of length `cols1` selected from `0..cols2`, with repetition possible. The iterator terminates after `cols2.pow(cols1)` variations.
 ///
