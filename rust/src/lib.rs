@@ -1,3 +1,64 @@
+//! # A Library for Calculations with Binary Relations
+//!
+//! The `relmetric` library creates an abstraction of (binary) relations---a 2x2 matrix of zero's and one's representing whether objects in one set relate to those in another. It offers core types [`Relation`], [`Column`], and [`Matches`] and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::metric()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
+//!
+//! # Overview
+//!
+//! As a quick overview, we reproduce the calculations of Examples 1 and 2 in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^3]
+//!
+//! ## Example 1
+//!
+//! ```
+//! use relmetric::*;
+//!
+//! let r1 = Relation::from(vec![Column::from(vec![1u8])]);
+//! let r2 = Relation::new();
+//! assert!(r2.is_empty());
+//! assert_eq!(r1.min_weight(&r2), 1);
+//! assert_eq!(r1.metric(&r2), 1);
+//! ```
+//! ## Example 2
+//!
+//! ```
+//! use relmetric::*;
+//!
+//! let mut r1 = Relation::from(vec![
+//!     Column::from(vec![0b1100u8]),
+//!     Column::from(vec![0b1010u8]),
+//!     Column::from(vec![0b1011u8]),
+//!     Column::from(vec![0b0011u8]),
+//! ]);
+//! let mut r2 = Relation::from(vec![
+//!     Column::from(vec![0b1100u8]),
+//!     Column::from(vec![0b1011u8]),
+//!     Column::from(vec![0b0101u8]),
+//! ]);
+//! assert_eq!(r1.metric(&r2), 2);
+//! assert_eq!(r2.metric(&r1), 2);
+//! r1.trim_row_count();
+//! let pretty_r1 = "\
+//! 1110
+//! 1000
+//! 0111
+//! 0011
+//! ";
+//! assert_eq!(format!("{}", r1), pretty_r1);
+//! r2.trim_row_count();
+//! let pretty_r2 = "\
+//! 110
+//! 101
+//! 010
+//! 011
+//! ";
+//! assert_eq!(format!("{}", r2), pretty_r2);
+//! ```
+//!
+//! [^1]: Definitions 1 and 2, [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
+//!
+//! [^2]: Theorem 2, [*id*, p. 33](https://arxiv.org/abs/2105.01690).
+//!
+//! [^3]: Examples 1 and 2, [*id*, pp. 10-11](https://arxiv.org/abs/2105.01690).
+
 use std::{
     fmt::{self},
     iter::zip,
@@ -955,7 +1016,7 @@ impl<'a> Relation<'a> {
         }
     }
 
-    /// Returns the minimum [`Column::weight()`] of all possible [`Column`] functions from `self` to `other`.
+    /// Returns the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
     ///
     /// Panics if non-empty [`Relation`]s don't have same `row_count`.
     ///
@@ -1324,7 +1385,7 @@ impl Index<usize> for XGroup {
     }
 }
 
-/// An [`Iterator`] of matches between [`Column`]s of two [`Relation`]s
+/// An [`Iterator`] of matches between [`Column`]s of two [`Relation`]s.
 ///
 /// Each call to `next()` returns a new [`Vec`] of length `cols1` selected from `0..cols2`, with repetition possible. The iterator terminates after `cols2.pow(cols1)` variations.
 ///
