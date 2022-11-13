@@ -454,15 +454,15 @@ impl<'a> Relation<'a> {
             let need_cols = n.checked_sub(self.columns.len()).unwrap_or(0);
             let mut new_col = v;
             if self_empty {
-                println!("self_empty");
+                println!("set_col self_empty");
                 self.row_count = new_col.row_count;
                 self.columns.clear();
                 self.columns = vec![Column::zero(new_col.row_count)];
             } else if v_empty {
-                println!("v_empty");
+                println!("set_col v_empty");
                 new_col = Column::zero(self.row_count);
             } else {
-                println!("neither empty");
+                println!("set_col neither empty");
                 assert!(self.row_count == new_col.row_count, "Relation::set_col requires same row_count but {} != {}", self.row_count, new_col.row_count);
             }
             for _ in 0..need_cols {
@@ -631,24 +631,28 @@ impl<'a> Relation<'a> {
 
     /// Returns a new [`Relation`] resulting from applying `col_matches` between `self` and `other`
     ///
-    /// Panics if `self` and `other` don't have same `row_count` or if `col_matches` is out of range for either `self` or `other`.
-    pub fn match_columns(&self, &other: &Relation<'_>, col_matches: &Vec<usize>) -> Relation<'a> {
-        assert_eq!(self.row_count, other.row_count, "Relation::weight() requires both Relations to have same row_count but {} != {}", self.row_count, other.row_count);
+    /// Panics if both `self` and `other` are non-empty but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
+    pub fn match_columns(&self, other: &Relation<'_>, col_matches: &Vec<usize>) -> Relation<'a> {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
+            println!("match_columns both empty");
             return self.clone()
         } else if self_empty {
+            println!("match_columns self_empty");
             return Relation::zero(other.row_count, other.columns.len()).match_columns(&other, col_matches)
         } else if other_empty {
+            println!("match_columns other_empty");
             return self.match_columns(&Relation::zero(self.row_count, self.columns.len()), col_matches)
         } else {
-            assert!(col_matches.len() <= self.columns.len(), "Relation::weight() Invalid col_match: col_match.len() {} > self.columns.len() {}", col_matches.len(), self.columns.len());
-            assert!(other.columns.len() >= *col_matches.iter().max().unwrap(), "Relation::weight() Invalid col_match: max col_matches[..] > self.columns.len() {}", other.columns.len());
+            assert_eq!(self.row_count, other.row_count, "Relation::match_columns() requires non-empty Relations to have same row_count but {} != {}", self.row_count, other.row_count);
+            println!("match_columns neither empty");
+            assert!(col_matches.len() <= self.columns.len(), "Relation::match_columns() Invalid col_match: col_match.len() {} > self.columns.len() {}", col_matches.len(), self.columns.len());
+            assert!(other.columns.len() >= *col_matches.iter().max().unwrap(), "Relation::match_columns() Invalid col_match: max col_matches[..] > self.columns.len() {}", other.columns.len());
 
             let mut res = self.clone();
             for i in 0..col_matches.len() {
-                res.set_col(i, *other.get_col(col_matches[i]))
+                res.set_col(i, other.get_col(col_matches[i]).clone())
             }
             return res
         }
@@ -665,7 +669,7 @@ impl<'a> Relation<'a> {
     /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
     pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
 
-        return self.clone().match_columns(other, col_matches).bitxor(&self).columns.iter().fold(vec![0_u32; self.row_count], |acc, &c| { for r in 0..c.row_count { if !c.get_bit(r) { acc[r] += 1}}; acc}).max().unwrap_or(0)
+        return *self.match_columns(other, col_matches).bitxor(self.clone()).columns.iter().fold(vec![0_u32; self.row_count], |mut acc, c| { for r in 0..c.row_count { if !c.get_bit(r) { acc[r] += 1}}; acc}).iter().max().unwrap()
 
         // let self_empty = self.is_empty();
         // let other_empty = other.is_empty();
@@ -1029,6 +1033,17 @@ mod tests {
         };
         assert!(c0.is_empty(), "{:?} should be empty", c0);
         assert!(!c1.is_empty(), "{:?} should not be empty", c1);
+    }
+
+    #[test]
+    fn col_is_zero_works() {
+        let c0 = Column::new();
+        let c1 = Column {
+            row_count: 32,
+            bit_field: vec![0u8, 0u8, 0u8, 0u8],
+        };
+        assert!(!c0.is_zero(), "{:?} should not be zero", c0);
+        assert!(c1.is_zero(), "{:?} should be zero", c1);
     }
 
     #[test]
@@ -1494,10 +1509,51 @@ mod tests {
             Column::from(vec![0b0000u8]),
             Column::from(vec![0b1000u8]),
         ]);
-        assert_eq!(r1.match_columns(&r2, 0, 0), 1, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 1", 0, r1, 0, r2);
-        assert_eq!(r1.match_columns(&r2, 0, 1), 0, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 0", 0, r1, 1, r2);
-        assert_eq!(r1.match_columns(&r2, 1, 0), 2, "\nmatch\n- Col: {} of {:?}\n- Col: {} of {:?}\nexpected: 2", 1, r1, 0, r2);
-        assert_eq!(Relation::new().match_columns(&r1, 0, 0), 1, "\nmatch\n- Col: {} of empty \n- Col: {} or {:?}\nexpected: 1", 0, 0, r1)
+        let col_matches = vec![1usize,0usize];
+        let res = r1.match_columns(&r2, &col_matches);
+        let want = Relation::from(vec![
+            Column::from(vec![0b1000u8]),
+            Column::from(vec![0b0000u8]),
+        ]);
+        assert_eq!(res, want, "\nRelation::match_columns fails with col_matches[{:?}] for \n{:x} \n{:x}\nwanted {:x}\ngot    {:x}\n", col_matches, r1, r2, want, res);
+
+        let ex1_r1 = Relation {row_count: 1, columns: vec![Column { row_count: 1, bit_field: vec![0b1u8] }], x_groups: None };
+        let ex1_r2 = Relation::new();
+        let ex1_matches = vec![0];
+        let ex1_res = ex1_r1.match_columns(&ex1_r2, &ex1_matches);
+        let ex1_want = Relation::zero(1,1);
+        assert_eq!(res, want, "\nRelation::match_columns fails Ex 1 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
+
+        let ex2_r1 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1010u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0011u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0101u8]),
+            ]);
+        // ex2_r2.trim_row_count();
+        let ex2_matches12 = vec![0, 1, 1, 2];
+        let ex2_matches21 = vec![1, 2, 0];
+        let ex2_res12 = ex2_r1.match_columns(&ex2_r2, &ex2_matches12);
+        let ex2_want12 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0101u8]),
+            ]);
+        let ex2_res21 = ex2_r2.match_columns(&ex2_r1, &ex2_matches21);
+            let ex2_want21 = Relation::from(vec![
+            Column::from(vec![0b1010u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b1100u8]),
+            ]);
+        assert_eq!(ex2_res12, ex2_want12, "\nRelation::match_columns fails Ex 2 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+        assert_eq!(ex2_res21, ex2_want21, "\nRelation::match_columns fails Ex 2 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
     }
 
     #[test]
@@ -1507,14 +1563,14 @@ mod tests {
         let ex1_matches = vec![0];
         assert_eq!(ex1_r1.weight(&ex1_r2, &ex1_matches), 1, "\nEx 1: weight of {:?} for\n {:?}\n -> {:?}\n", ex1_matches, ex1_r1, ex1_r2);
 
-        let mut ex2_r1 = Relation::from(vec![
+        let ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1010u8]),
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b0011u8]),
         ]);
         // ex2_r1.trim_row_count();
-        let mut ex2_r2 = Relation::from(vec![
+        let ex2_r2 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b0101u8]),
