@@ -3,9 +3,6 @@ use std::{
     iter::zip,
     ops::{BitAnd, BitOr, BitXor, Index, Sub},
 };
-
-// use core::slice;
-// use std::ops::{Index};
 use byteorder::{BigEndian, WriteBytesExt};
 
 /// Represents a column in a Relation.
@@ -13,7 +10,11 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// Each is represented by a list of [`u8`] integers in big-endian order.
 /// Lists end on word boundaries; so the modulus resides in the low end of last integer in the list for each column.
 ///
-/// The default `Column` is empty, with `row_count` == 0 and empty [`bit_field`. Zero `Column` is also empty but has a specified positive [`row_count`.
+/// The default `Column` is empty, with `row_count` == 0 and empty `bit_field`.
+///
+/// A zero `Column` has a positive `row_count` and 0s in the `bit_field`, so is *not* empty.
+///
+/// Two [`Column`]s are *disjoint* if they do not share `true` bit in any row. Thus empty and zero [`Column`]s are all *not* disjoint from each other, since they share no `true` bit in any row.
 ///
 /// # Examples
 ///
@@ -21,9 +22,14 @@ use byteorder::{BigEndian, WriteBytesExt};
 /// use relmetric::Column;
 ///
 /// let c0 = Column::new();
-/// assert_eq!(c0.row_count, 0);
+/// assert_eq!(c0, Column { row_count: 0, bit_field: vec![] });
 /// assert!(c0.bit_field.is_empty());
 /// assert!(c0.is_empty());
+///
+/// let zero16 = Column::zero(16);
+/// assert_eq!(zero16, Column { row_count: 16, bit_field: vec![0; 2] });
+/// assert!(zero16.is_zero());
+/// assert!(!zero16.is_empty());
 /// ```
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Column {
@@ -189,13 +195,13 @@ impl Column {
     ///
     /// NB: Unlike the `lua` version, empties / zeros are *not* disjoint from each other and *are* disjoint from non-empties / non-zeros. Finding empties disjoint from everything doesn't make sense.
     pub fn is_disjoint(&self, other: &Column) -> bool {
-        if self.is_empty() {
-            if other.is_empty() {
+        if self.is_empty() || self.is_zero() {
+            if other.is_empty() || other.is_zero() {
                 return false;
             } else {
                 return true;
             }
-        } else if other.is_empty() {
+        } else if other.is_empty() || other.is_zero() {
             return true;
         } else {
             let mut res = true;
@@ -541,7 +547,7 @@ impl BitOr for Column {
 impl BitXor for Column {
     type Output = Self;
 
-    /// Performs the [`^`](std::ops::BitOr::bitxor) operation for two [`Column`]s of same `row_count`.
+    /// Performs the [`^`](std::ops::BitXor::bitxor) operation for two [`Column`]s of same `row_count`.
     ///
     /// Panics if the two [`Column`]s don't have the same `row_count`.
     fn bitxor(self, rhs: Self) -> Self::Output {
@@ -948,6 +954,55 @@ impl<'a> Relation<'a> {
             return penalty + max_row_diff;
         }
     }
+
+    /// Returns the minimum [`Column::weight()`] of all possible [`Column`] functions from `self` to `other`.
+    ///
+    /// Panics if non-empty [`Relation`]s don't have same `row_count`.
+    ///
+    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    pub fn min_weight(&self, other: &Relation) -> u32 {
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        let from_col_count = self.columns.len();
+        let to_col_count = other.columns.len();
+
+        if self_empty || other_empty {
+            // weight() will ignore matches
+            return self.weight(&other, &vec![0])
+        } else {
+            // initialize worst case
+            let mut res = to_col_count as u32 * other.get_row_count() as u32;
+
+            // check all matches
+            for m in Matches::new(from_col_count, to_col_count) {
+                let w = self.weight(&other, &m);
+                println!("min_weight:{} with weight:{} for match:{:?}", res, w, m);
+                if w < res { res = w; }
+            }
+            return res
+        }
+    }
+
+    /// Returns the "distance" between two [`Relation`]s.
+    ///
+    /// Panics if non-empty [`Relation`]s don't have the same `row_count`.
+    ///
+    /// The *distance* is defined as the maximum of the minimum *weight* between the [`Relation`]s in each direction. This is achieved in the direction toward the [`Relation`] with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    ///
+    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    ///
+    /// # Example
+    ///
+    pub fn metric(&self, other: &Relation) -> u32 {
+        let from_col_count = if self.is_empty() {0} else {self.columns.len()};
+        let to_col_count = if other.is_empty() {0} else {other.columns.len()};
+
+        if from_col_count <= to_col_count {
+            return self.min_weight(other)
+        } else {
+            return other.min_weight(self)
+        }
+    }
 }
 
 impl From<Vec<Column>> for Relation<'_> {
@@ -1275,15 +1330,17 @@ impl Index<usize> for XGroup {
 ///
 /// Example
 /// ```
+/// use relmetric::Matches;
+///
 /// let mut m = Matches::new(2,2);
 /// assert_eq!(m.next(), Some(vec![0,0]));
 /// assert_eq!(m.next(), Some(vec![1,0]));
-/// assert_eq!(m.next(), Some(vec![1,1]));
 /// assert_eq!(m.next(), Some(vec![0,1]));
+/// assert_eq!(m.next(), Some(vec![1,1]));
 /// assert_eq!(m.next(), None);
 /// ```
 #[derive(Debug)]
-struct Matches {
+pub struct Matches {
     matches: Vec<usize>,
     cols1: usize,
     cols2: usize,
@@ -1291,7 +1348,7 @@ struct Matches {
 }
 
 impl Matches {
-    fn new(cols1: usize, cols2: usize) -> Matches {
+    pub fn new(cols1: usize, cols2: usize) -> Matches {
         Matches {
             matches: vec![],
             cols1,
@@ -1737,13 +1794,13 @@ mod tests {
         );
         assert!(
             !empty.is_disjoint(&zero),
-            "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}",
+            "Fails to see that empty and zero are NOT disjoint:\n left: {:?}\nright: {:?}",
             empty,
             zero
         );
         assert!(
             !zero.is_disjoint(&empty),
-            "Fails to see that empty are zero are NOT disjoint:\n left: {:?}\nright: {:?}",
+            "Fails to see that zero and empty are NOT disjoint:\n left: {:?}\nright: {:?}",
             zero,
             empty
         );
@@ -1929,24 +1986,63 @@ mod tests {
 
     #[test]
     fn sets_and_gets_col() {
+        let c0 = Column::new();
+        let zero32 = Column {row_count: 32, bit_field: vec![0;4]};
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let mut r1 = Relation::from(vec![c1.clone(), c2.clone()]);
-        assert_eq!(r1.get_col(0), &c1, "\nFails to get_col[{}] ", 0);
+
+        assert_eq!(r1.get_col(0), &c1, "\nFails to get_col[{}] from:{:?}", 0, r1);
+        assert_eq!(r1.get_col(1), &c2, "\nFails to get_col[{}] from:{:?}", 1, r1);
+
+        r1.set_col(0, c0.clone());
+        assert_eq!(r1.get_col(0), &zero32, "\nFails to set_col[{}] to empty of proper length, got:\n {:?}", 0, r1);
+
         r1.set_col(0, c2.clone());
-        assert_eq!(
-            r1.get_col(0),
-            &c2,
-            "\nFails to set_col[{}] to c2:\n- {:?}",
-            0,
-            r1
-        );
-        r1.set_col(0, Column::new());
-        assert!(
-            r1.get_col(0).is_empty(),
-            "\nFails to set_col[{}] to empty",
-            0
-        );
+        assert_eq!(r1.get_col(0), &c2, "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}", 0, &c2, r1);
+
+        r1.set_col(1, c1.clone());
+        assert_eq!(r1.get_col(1), &c1, "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}", 1, &c1, r1);
+    }
+
+    #[test]
+    fn col_max_true_bit_works() {
+        let mut c = Column::new();
+        assert_eq!(c.max_true_bit(), 0, " for {:?}", c);
+        c = Column::from(vec![0b11111111u8]);
+        assert_eq!(c.max_true_bit(), 8, " for {:?}", c);
+        c = Column::from(vec![0b1111u8, 0b111u8]);
+        assert_eq!(c.max_true_bit(), 11, " for {:?}", c);
+        c = Column::from(vec![0b1111u32, 0b1111u32]);
+        assert_eq!(c.max_true_bit(), 60, " for {:?}", c);
+    }
+
+    #[test]
+    fn col_trim_row_count_works() {
+        let mut c = Column::from(vec![0b1111u32, 0b1111u32]);
+        assert_eq!(c.row_count, 64);
+        assert_eq!(c.trim_row_count(), 60);
+        assert_eq!(c.row_count, 60);
+    }
+
+    #[test]
+    fn rel_max_true_bit_works() {
+        let r0 = Relation::from(vec![Column::new()]);
+        assert_eq!(r0.max_true_bit(), 0, " for {:?}", r0);
+        let r1 = Relation::from(vec![Column::from(vec![0b11111111u8])]);
+        assert_eq!(r1.max_true_bit(), 8, " for {:?}", r1);
+        let r2 = Relation::from(vec![Column::from(vec![0b1111u8, 0b111u8])]);
+        assert_eq!(r2.max_true_bit(), 11, " for {:?}", r2);
+        let r3 = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])]);
+        assert_eq!(r3.max_true_bit(), 60, " for {:?}", r3);
+    }
+
+    #[test]
+    fn rel_trim_row_count_works() {
+        let mut r = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])]);
+        assert_eq!(r.row_count, 64);
+        assert_eq!(r.trim_row_count(), 60);
+        assert_eq!(r.row_count, 60);
     }
 
     #[test]
@@ -2224,13 +2320,14 @@ mod tests {
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b0101u8]),
         ]);
+        assert_eq!(ex2_res12, ex2_want12, "\nRelation::match_columns fails Ex 2 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+
         let ex2_res21 = ex2_r2.match_columns(&ex2_r1, &ex2_matches21);
         let ex2_want21 = Relation::from(vec![
             Column::from(vec![0b1010u8]),
             Column::from(vec![0b1011u8]),
             Column::from(vec![0b1100u8]),
         ]);
-        assert_eq!(ex2_res12, ex2_want12, "\nRelation::match_columns fails Ex 2 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
         assert_eq!(ex2_res21, ex2_want21, "\nRelation::match_columns fails Ex 2 with col_matches[{:?}] for\n{:x}\n{:x}\nwanted {:x}\ngot    {:x}\n", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
     }
 
@@ -2275,55 +2372,6 @@ mod tests {
     }
 
     #[test]
-    fn rel_matches_works() {}
-
-    #[test]
-    fn rel_min_weight_works() {}
-
-    #[test]
-    fn relmetric_works() {}
-
-    #[test]
-    fn col_max_true_bit_works() {
-        let mut c = Column::new();
-        assert_eq!(c.max_true_bit(), 0, " for {:?}", c);
-        c = Column::from(vec![0b11111111u8]);
-        assert_eq!(c.max_true_bit(), 8, " for {:?}", c);
-        c = Column::from(vec![0b1111u8, 0b111u8]);
-        assert_eq!(c.max_true_bit(), 11, " for {:?}", c);
-        c = Column::from(vec![0b1111u32, 0b1111u32]);
-        assert_eq!(c.max_true_bit(), 60, " for {:?}", c);
-    }
-
-    #[test]
-    fn col_trim_row_count_works() {
-        let mut c = Column::from(vec![0b1111u32, 0b1111u32]);
-        assert_eq!(c.row_count, 64);
-        assert_eq!(c.trim_row_count(), 60);
-        assert_eq!(c.row_count, 60);
-    }
-
-    #[test]
-    fn rel_max_true_bit_works() {
-        let r0 = Relation::from(vec![Column::new()]);
-        assert_eq!(r0.max_true_bit(), 0, " for {:?}", r0);
-        let r1 = Relation::from(vec![Column::from(vec![0b11111111u8])]);
-        assert_eq!(r1.max_true_bit(), 8, " for {:?}", r1);
-        let r2 = Relation::from(vec![Column::from(vec![0b1111u8, 0b111u8])]);
-        assert_eq!(r2.max_true_bit(), 11, " for {:?}", r2);
-        let r3 = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])]);
-        assert_eq!(r3.max_true_bit(), 60, " for {:?}", r3);
-    }
-
-    #[test]
-    fn rel_trim_row_count_works() {
-        let mut r = Relation::from(vec![Column::from(vec![0b1111u32, 0b1111u32])]);
-        assert_eq!(r.row_count, 64);
-        assert_eq!(r.trim_row_count(), 60);
-        assert_eq!(r.row_count, 60);
-    }
-
-    #[test]
     fn match_iterator_works() {
         let mut m = Matches::new(2,3);
         assert_eq!(m.next(), Some(vec![0,0]));
@@ -2337,4 +2385,75 @@ mod tests {
         assert_eq!(m.next(), Some(vec![2,2]));
         assert_eq!(m.next(), None);
     }
+
+    #[test]
+    fn rel_min_weight_works() {
+        let ex1_r1 = Relation {
+            row_count: 1,
+            columns: vec![Column {
+                row_count: 1,
+                bit_field: vec![0b1u8],
+            }],
+            x_groups: None,
+        };
+        let ex1_r2 = Relation::new();
+        let ex1_res = ex1_r1.min_weight(&ex1_r2);
+        let ex1_want = 1;
+        assert_eq!(ex1_res, ex1_want, "\nRelation::min_weight fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_r1, ex1_r2, ex1_want, ex1_res);
+
+        let ex2_r1 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1010u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0011u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0101u8]),
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_res12 = ex2_r1.min_weight(&ex2_r2);
+        let ex2_want12 = 1;
+        assert_eq!(ex2_res12, ex2_want12, "\nRelation::min_weight fails Ex 2 r1->r2 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+
+        let ex2_res21 = ex2_r2.min_weight(&ex2_r1);
+        let ex2_want21 = 2;
+        assert_eq!(ex2_res21, ex2_want21, "\nRelation::min_weight fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r2, ex2_r1, ex2_want21, ex2_res21);
+    }
+
+    #[test]
+    fn rel_metric_works() {
+        let ex1_r1 = Relation {
+            row_count: 1,
+            columns: vec![Column {
+                row_count: 1,
+                bit_field: vec![0b1u8],
+            }],
+            x_groups: None,
+        };
+        let ex1_r2 = Relation::new();
+        let ex1_res = ex1_r1.metric(&ex1_r2);
+        let ex1_want = 1;
+        assert_eq!(ex1_res, ex1_want, "\nRelation::metric fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_r1, ex1_r2, ex1_want, ex1_res);
+
+        let ex2_r1 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1010u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0011u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = Relation::from(vec![
+            Column::from(vec![0b1100u8]),
+            Column::from(vec![0b1011u8]),
+            Column::from(vec![0b0101u8]),
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_res = ex2_r2.metric(&ex2_r1);
+        let ex2_want = 2;
+        assert_eq!(ex2_res, ex2_want, "\nRelation::metric fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r2, ex2_r1, ex2_want, ex2_res);
+    }
+
 }
