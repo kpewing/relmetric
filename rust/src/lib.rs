@@ -742,14 +742,17 @@ impl Relation {
     /// Returns the [`XGrouping`] partition of the [`Relation`].
     ///
     /// NB: The [`XGrouping`] of an [`empty`](Relation::is_empty()) [`Relation`] is, in itself "empty", i.e., has no [`XGroup`]s in it.
-    pub fn xgroup(&self) -> Vec<XGroup> {
+    pub fn xgroup(&self) -> XGrouping {
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
         // -- if no overlaps, then create a new group `res[_]
         // - repeat checking for remaining `columns[i+1..]`
         if self.is_empty() {
-            return vec![];
+            return XGrouping {
+                relation: &self,
+                partition: vec![],
+            };
         } else {
             let mut res: Vec<XGroup> = vec![XGroup {
                 max: self.columns[0].clone(),
@@ -796,7 +799,10 @@ impl Relation {
                 }
             }
             res.sort_unstable_by(|a, b| a.col_indices.len().cmp(&b.col_indices.len()));
-            return res
+            return XGrouping {
+                relation: &self,
+                partition: res,
+            }
         }
     }
 
@@ -808,7 +814,7 @@ impl Relation {
         if self.is_empty() {
             return 0;
         } else {
-            let xgs = self.xgroup();
+            let xgs = self.xgroup().partition;
             let mut blockcounts: Vec<usize> = xgs.iter().map(|x| x.col_indices.len()).collect();
             blockcounts.sort();
             let mut bc_sum = 0;
@@ -1266,7 +1272,7 @@ impl Sub for Relation {
 ///
 /// A [`Relation`]'s [`Column`]s can be partitioned into a collection of [`XGroup`]s of Columns, each collecting [`Column`]s that are *each* not [`disjoint`](Column::is_disjoint()) (i.e., share a `true` bit) with *some* other member of the [`XGroup`] but *all* are [`disjoint`](Column::is_disjoint()) with *all* other [`Column`]s *not* in that [`XGroup`].
 ///
-/// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+/// NB: Because a partition makes no sense away from its [`Relation`], the [`XGrouping`] inherits the [lifetime](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html) of its [`Relation`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGrouping<'a> {
     relation: &'a Relation,
@@ -1276,10 +1282,7 @@ pub struct XGrouping<'a> {
 impl XGrouping<'_> {
     /// Returns an [`XGrouping`] for the given [`Relation`] or `None` if the [`Relation`] is [`empty`](Relation::is_empty()).
     pub fn new<'a>(rel: &'a Relation) -> XGrouping<'a> {
-        XGrouping {
-            relation: rel,
-            partition: rel.xgroup(),
-        }
+        rel.xgroup()
     }
 }
 
@@ -1323,8 +1326,6 @@ impl fmt::Display for XGrouping<'_> {
 /// Represents an *x-group* of [`Column`]s that are [`Column::is_disjoint`] with all other [`Column`]s in the [`Relation`].
 ///
 /// Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
-///
-/// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGroup {
     pub max: Column,
@@ -2103,7 +2104,7 @@ mod tests {
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
         let mut r1 = Relation::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
-        let mut res = r1.xgroup().len();
+        let mut res = r1.xgroup().partition.len();
         let mut want = 2;
         assert_eq!(
             res, want,
@@ -2111,14 +2112,14 @@ mod tests {
             res, want, r1
         );
         r1.set_col(2, c2.clone());
-        res = r1.xgroup().len();
+        res = r1.xgroup().partition.len();
         assert_eq!(
             res, want,
             "\n\nNumber of XGroups {} != {} for\n{:?}",
             res, want, r1
         );
         r1.set_col(2, c3.clone());
-        res = r1.xgroup().len();
+        res = r1.xgroup().partition.len();
         want = 1;
         assert_eq!(
             res, want,
