@@ -639,27 +639,24 @@ impl BitXor for Column {
 ///
 /// The default Relation is [`empty`](Column::is_empty()), with `row_count` == 0 and an empty collection of [`Column`]s.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Relation<'a> {
+pub struct Relation {
     /// The number of rows of all [`Column`]s of this [`Relation`].
     pub row_count: usize,
     /// Collection of the [`Column`]s in this [`Relation`].
     pub columns: Vec<Column>,
-    /// Private field with possible partition of this [`Relation`] into "x-groups". Set by method `xgroup()`.
-    x_groups: Option<XGrouping<'a>>,
 }
 
-impl<'a> Relation<'a> {
-    /// Returns a new empty [`Relation`] with `row_count` set to default 0, no [`Column`]s and `x_groups` `None`.
-    pub fn new() -> Relation<'a> {
+impl Relation {
+    /// Returns a new empty [`Relation`] with `row_count` set to default 0, no [`Column`]s.
+    pub fn new() -> Relation {
         Default::default()
     }
 
     /// Returns a zero [`Relation`] with given `row_count` and given number of zero [`Column`]s.
-    pub fn zero(row_count: usize, col_count: usize) -> Relation<'a> {
+    pub fn zero(row_count: usize, col_count: usize) -> Relation {
         Relation {
             row_count,
             columns: vec![Column::zero(row_count); col_count],
-            x_groups: Default::default(),
         }
     }
 
@@ -683,7 +680,7 @@ impl<'a> Relation<'a> {
         &self.columns[n]
     }
 
-    /// Replaces the [`Relation`]'s `n`'th [`Column`] with `v`, pushing any needed [zero Columns](`Column::zero()`), and resets the private `x_groups` to `None`.
+    /// Replaces the [`Relation`]'s `n`'th [`Column`] with `v`, pushing any needed [zero Columns](`Column::zero()`).
     ///
     /// Can be used to extend the [`Relation`] with [`zero`](Column::is_zero()) [`Column`]s.
     ///
@@ -718,7 +715,6 @@ impl<'a> Relation<'a> {
                 self.columns.push(Column::zero(self.row_count));
             }
             self.columns[n] = new_col;
-            self.x_groups = None; // force recalculation next time
         }
     }
 
@@ -743,15 +739,17 @@ impl<'a> Relation<'a> {
         max_true_bit
     }
 
-    /// Returns an `Some(XGrouping)`[`XGrouping`] partition of the [`Relation`]'s [`Column`]s or `None` if the [`Relation`] is [`empty`](Relation::is_empty()).
-    pub fn xgroup(&self) -> Option<Vec<XGroup>> {
+    /// Returns the [`XGrouping`] partition of the [`Relation`].
+    ///
+    /// NB: The [`XGrouping`] of an [`empty`](Relation::is_empty()) [`Relation`] is, in itself "empty", i.e., has no [`XGroup`]s in it.
+    pub fn xgroup(&self) -> Vec<XGroup> {
         // Checks all columns v. all groups:
         // - for each `columns[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
         // -- if no overlaps, then create a new group `res[_]
         // - repeat checking for remaining `columns[i+1..]`
         if self.is_empty() {
-            return None;
+            return vec![];
         } else {
             let mut res: Vec<XGroup> = vec![XGroup {
                 max: self.columns[0].clone(),
@@ -798,7 +796,7 @@ impl<'a> Relation<'a> {
                 }
             }
             res.sort_unstable_by(|a, b| a.col_indices.len().cmp(&b.col_indices.len()));
-            return Some(res);
+            return res
         }
     }
 
@@ -810,10 +808,7 @@ impl<'a> Relation<'a> {
         if self.is_empty() {
             return 0;
         } else {
-            let xgs = match self.xgroup() {
-                None => panic!("Relation::kappa() requires XGrouping but xgroup() generated None"),
-                Some(x) => x,
-            };
+            let xgs = self.xgroup();
             let mut blockcounts: Vec<usize> = xgs.iter().map(|x| x.col_indices.len()).collect();
             blockcounts.sort();
             let mut bc_sum = 0;
@@ -888,7 +883,7 @@ impl<'a> Relation<'a> {
     /// Returns a new [`Relation`] resulting from applying `col_matches` between `self` and `other`.
     ///
     /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
-    pub fn match_columns(&self, other: &Relation<'_>, col_matches: &Vec<usize>) -> Relation<'a> {
+    pub fn match_columns(&self, other: &Relation, col_matches: &Vec<usize>) -> Relation {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
@@ -1049,7 +1044,7 @@ impl<'a> Relation<'a> {
     }
 }
 
-impl From<Vec<Column>> for Relation<'_> {
+impl From<Vec<Column>> for Relation {
     /// Converts a [`Vec<Column>`] into a [`Relation`] if everything has the same `row_count`.
     ///
     /// Panics if they don't have the same `row_count`.
@@ -1064,12 +1059,11 @@ impl From<Vec<Column>> for Relation<'_> {
         Relation {
             row_count,
             columns,
-            x_groups: Default::default(),
         }
     }
 }
 
-impl From<Vec<Vec<u8>>> for Relation<'_> {
+impl From<Vec<Vec<u8>>> for Relation {
     /// Converts a [`Vec<Vec<u8>>`] into a [`Relation`] if all [`Column`]s created from the inner `Vec<u8>` have the same `row_count`.
     ///
     /// Panics if the created [`Column`]s don't have the `row_count`.
@@ -1085,12 +1079,11 @@ impl From<Vec<Vec<u8>>> for Relation<'_> {
         Relation {
             row_count,
             columns,
-            x_groups: Default::default(),
         }
     }
 }
 
-impl fmt::Display for Relation<'_> {
+impl fmt::Display for Relation {
     /// Display as a binary matrix of rows from top to bottom and columns from left to right.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::new();
@@ -1108,7 +1101,7 @@ impl fmt::Display for Relation<'_> {
     }
 }
 
-impl fmt::Binary for Relation<'_> {
+impl fmt::Binary for Relation {
     /// Show the a big-endian binary representation of all [`Column`]s in the [`Relation`], one per line.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
@@ -1126,7 +1119,7 @@ impl fmt::Binary for Relation<'_> {
     }
 }
 
-impl fmt::LowerHex for Relation<'_> {
+impl fmt::LowerHex for Relation {
     /// Show the a big-endian lower-hexadecimal representation of all [`Column`]s in the [`Relation`], one per line.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
@@ -1144,7 +1137,7 @@ impl fmt::LowerHex for Relation<'_> {
     }
 }
 
-impl fmt::UpperHex for Relation<'_> {
+impl fmt::UpperHex for Relation {
     /// Show the a big-endian upper-hexadecimal representation of all [`Column`]s in the [`Relation`], one per line.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // let s = self.columns.iter().enumerate().map(|x| format!("[{}]: {:08b}", x.0, x.1)).collect::<Vec<String>>().join("\n");
@@ -1162,7 +1155,7 @@ impl fmt::UpperHex for Relation<'_> {
     }
 }
 
-impl BitAnd for Relation<'_> {
+impl BitAnd for Relation {
     type Output = Self;
 
     /// Performs the [`^`](std::ops::BitAnd::bitand) operation for two [`Relation`]s of same `row_count`.
@@ -1181,13 +1174,12 @@ impl BitAnd for Relation<'_> {
                 columns: zip(self.columns.clone(), rhs.columns.clone())
                     .map(|(s, r)| s & r)
                     .collect::<Vec<Column>>(),
-                x_groups: Default::default(),
-            };
+                };
         }
     }
 }
 
-impl BitOr for Relation<'_> {
+impl BitOr for Relation {
     type Output = Self;
 
     /// Performs the [`^`](std::ops::BitOr::bitor) operation for two [`Relation`]s of same `row_count`.
@@ -1206,13 +1198,12 @@ impl BitOr for Relation<'_> {
                 columns: zip(self.columns.clone(), rhs.columns.clone())
                     .map(|(s, r)| s | r)
                     .collect::<Vec<Column>>(),
-                x_groups: Default::default(),
             };
         }
     }
 }
 
-impl BitXor for Relation<'_> {
+impl BitXor for Relation {
     type Output = Self;
 
     /// Performs the [`^`](std::ops::BitXor::bitxor) operation for two [`Relation`]s of same `row_count`.
@@ -1231,13 +1222,12 @@ impl BitXor for Relation<'_> {
                 columns: zip(self.columns.clone(), rhs.columns.clone())
                     .map(|(s, r)| s ^ r)
                     .collect::<Vec<Column>>(),
-                x_groups: Default::default(),
             };
         }
     }
 }
 
-impl Sub for Relation<'_> {
+impl Sub for Relation {
     type Output = Self;
 
     /// Multiset difference: one-for-one remove from `self` each [`Column`] that is found in `other`
@@ -1268,31 +1258,27 @@ impl Sub for Relation<'_> {
         return Relation {
             row_count: self.row_count,
             columns: new_cols,
-            x_groups: None,
         };
     }
 }
 
 /// Represents the partition of a [`Relation`] into [`XGroup`]s.
 ///
-/// A [`Relation`]'s collection of [`Column`]s can be partitioned into an [`XGrouping`] of Columns, where each [`XGroup`] collects [`Column`]s in the [`Relation`] that each share a `true` bit with some other member of the `XGroup`.
+/// A [`Relation`]'s [`Column`]s can be partitioned into a collection of [`XGroup`]s of Columns, each collecting [`Column`]s that are *each* not [`disjoint`](Column::is_disjoint()) (i.e., share a `true` bit) with *some* other member of the [`XGroup`] but *all* are [`disjoint`](Column::is_disjoint()) with *all* other [`Column`]s *not* in that [`XGroup`].
 ///
 /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct XGrouping<'a> {
-    relation: &'a Relation<'a>,
+    relation: &'a Relation,
     pub partition: Vec<XGroup>,
 }
 
 impl XGrouping<'_> {
-    /// Optionally returns a new [`XGrouping`] for the given [`Relation`] as calculated by [`Relation::xgroup()`]
-    pub fn new<'a>(rel: &'a Relation) -> Option<XGrouping<'a>> {
-        match rel.xgroup() {
-            None => None,
-            Some(xgs) => Some(XGrouping {
-                relation: &rel,
-                partition: xgs,
-            }),
+    /// Returns an [`XGrouping`] for the given [`Relation`] or `None` if the [`Relation`] is [`empty`](Relation::is_empty()).
+    pub fn new<'a>(rel: &'a Relation) -> XGrouping<'a> {
+        XGrouping {
+            relation: rel,
+            partition: rel.xgroup(),
         }
     }
 }
@@ -1958,7 +1944,6 @@ mod tests {
         let want = Relation {
             row_count: 0,
             columns: vec![],
-            x_groups: None,
         };
         assert_eq!(res, want)
     }
@@ -1971,7 +1956,6 @@ mod tests {
         let r1 = Relation {
             row_count: 32,
             columns: vec![c1, c2],
-            x_groups: None,
         };
         assert!(r0.is_empty(), "{:?} should not be empty", r0);
         assert!(!r1.is_empty(), "{:?} should be empty", r1);
@@ -1985,7 +1969,6 @@ mod tests {
         let r1b = Relation {
             row_count: 32,
             columns: vec![c1, c2],
-            x_groups: Default::default(),
         };
         assert_eq!(r1a, r1b, "{:?} should == {:?}", r1a, r1b)
     }
@@ -2120,35 +2103,26 @@ mod tests {
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let c3 = Column::from(vec![0x100fu16, 0x0f3fu16]);
         let mut r1 = Relation::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
-        let mut res = match r1.xgroup() {
-            None => 0,
-            Some(xgs) => xgs.len(),
-        };
+        let mut res = r1.xgroup().len();
         let mut want = 2;
         assert_eq!(
             res, want,
-            "\n\nLength of x_groups {} != {} for\n{:?}",
+            "\n\nNumber of XGroups {} != {} for\n{:?}",
             res, want, r1
         );
         r1.set_col(2, c2.clone());
-        res = match r1.xgroup() {
-            None => 0,
-            Some(xgs) => xgs.len(),
-        };
+        res = r1.xgroup().len();
         assert_eq!(
             res, want,
-            "\n\nLength of x_groups {} != {} for\n{:?}",
+            "\n\nNumber of XGroups {} != {} for\n{:?}",
             res, want, r1
         );
         r1.set_col(2, c3.clone());
-        res = match r1.xgroup() {
-            None => 0,
-            Some(xgs) => xgs.len(),
-        };
+        res = r1.xgroup().len();
         want = 1;
         assert_eq!(
             res, want,
-            "\n\nLength of x_groups {} != {} for\n{:?}",
+            "\n\nNumber of XGroups {} != {} for\n{:?}",
             res, want, r1
         );
     }
@@ -2167,8 +2141,8 @@ mod tests {
             Column::from(vec![0b0001u8]),
             Column::from(vec![0b0001u8]),
         ]);
-        let xgs = r.xgroup().unwrap();
-        let x_grouping = XGrouping::new(&r).unwrap();
+        let xgs = r.xgroup();
+        let x_grouping = XGrouping::new(&r);
         let res = format!("{}", x_grouping);
         let want = r#"0 00 000 0000
 0 00 000 0000
@@ -2326,7 +2300,6 @@ mod tests {
                 row_count: 1,
                 bit_field: vec![0b1u8],
             }],
-            x_groups: None,
         };
         let ex1_r2 = Relation::new();
         let ex1_matches = vec![0];
@@ -2375,7 +2348,6 @@ mod tests {
                 row_count: 1,
                 bit_field: vec![0b1u8],
             }],
-            x_groups: None,
         };
         let ex1_r2 = Relation::new();
         let ex1_matches = vec![0];
@@ -2430,7 +2402,6 @@ mod tests {
                 row_count: 1,
                 bit_field: vec![0b1u8],
             }],
-            x_groups: None,
         };
         let ex1_r2 = Relation::new();
         let ex1_res = ex1_r1.min_weight(&ex1_r2);
@@ -2467,7 +2438,6 @@ mod tests {
                 row_count: 1,
                 bit_field: vec![0b1u8],
             }],
-            x_groups: None,
         };
         let ex1_r2 = Relation::new();
         let ex1_res = ex1_r1.metric(&ex1_r2);
