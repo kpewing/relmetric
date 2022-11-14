@@ -1,5 +1,5 @@
 # relmetric
-Tools for computing distances between relation matrices, based on [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
+Tools for computing distances between relation matrices, based on [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations"](https://arxiv.org/abs/2105.01690).
 
 Forked from https://github.com/kb1dds/relmetric.
 
