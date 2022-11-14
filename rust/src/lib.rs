@@ -1,6 +1,6 @@
 //! # A Library for Calculations with Binary Relations
 //!
-//! The `relmetric` library creates an abstraction of (binary) relations---a 2x2 matrix of zero's and one's representing whether objects in one set relate to those in another. It offers core types [`Relation`], [`Column`], and [`Matches`] and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::metric()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
+//! The `relmetric` library creates an abstraction of a (binary) relation---a 2x2 matrix of zero's and one's representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`], [`Column`], [`Matches`], and [`XGrouping`], and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::metric()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
 //!
 //! # Overview
 //!
@@ -53,6 +53,14 @@
 //! assert_eq!(format!("{}", r2), pretty_r2);
 //! ```
 //!
+//! ## Other Cool Stuff
+//!
+//! - Calculate the [*kappa* bound](Relation::kappa()) defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+//! - Pretty-print both a [`Relation`] and an [`XGrouping`] with the standard format [`Display`](std::fmt::Display).
+//! - Show easily human-readable binary and hexadecimal formats for both [`Column`]s and [`Relation`]s using [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
+//! - Total lexical ordering of [`Column`]s and [`Relation`]s.
+//! - Binary arithmetic for both [`Column`]s and [`Relation`]s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
+//!
 //! [^1]: Definitions 1 and 2, [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
 //!
 //! [^2]: Theorem 2, [*id*, p. 33](https://arxiv.org/abs/2105.01690).
@@ -62,7 +70,7 @@
 use std::{
     fmt::{self},
     iter::zip,
-    ops::{BitAnd, BitOr, BitXor, Index, Sub},
+    ops::{BitAnd, BitOr, BitXor, Index, Sub, Not},
 };
 use byteorder::{BigEndian, WriteBytesExt};
 
@@ -484,6 +492,18 @@ impl fmt::UpperHex for Column {
         }
         s.push_str("]");
         write!(f, "{s}")
+    }
+}
+
+impl Not for Column {
+    type Output = Self;
+
+    /// Performs the unary [`!`](std::ops::Not) operation for a [`Column`].
+    fn not(self) -> Self::Output {
+        Column {
+            row_count: self.row_count,
+            bit_field: self.bit_field.iter().map(|x|!x).collect(),
+        }
     }
 }
 
@@ -1099,17 +1119,29 @@ impl fmt::UpperHex for Relation {
     }
 }
 
+impl Not for Relation {
+    type Output = Self;
+
+    /// Performs the unary [`!`](std::ops::Not) operation for a [`Relation`].
+    fn not(self) -> Self::Output {
+        Relation {
+            row_count: self.row_count,
+            columns: self.columns.iter().map(|x|!x.clone()).collect(),
+        }
+    }
+}
+
 impl BitAnd for Relation {
     type Output = Self;
 
-    /// Performs the [`^`](std::ops::BitAnd::bitand) operation for two [`Relation`]s of same `row_count`.
+    /// Performs the [`^`](std::ops::BitAnd::bitand) operation for two [`Relation`]s of same `row_count` and number of `columns`.
     ///
-    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    /// Panics if the two [`Relation`]s don't have the same `row_count` and number of `columns`.
     fn bitand(self, rhs: Self) -> Self::Output {
         if self.is_empty() {
-            return rhs.clone();
-        } else if rhs.is_empty() {
             return self.clone();
+        } else if rhs.is_empty() {
+            return rhs.clone();
         } else {
             assert!(self.row_count == rhs.row_count, "Relation::bitxor requires non-empty Relations to have equal row_count but: {} != {}", self.row_count, rhs.row_count);
             assert!(self.columns.len() == rhs.columns.len(), "Relation::bitxor requires non-empty Relations to have equal numbers of columns but: {} != {}", self.columns.len(), rhs.columns.len());
@@ -1126,9 +1158,9 @@ impl BitAnd for Relation {
 impl BitOr for Relation {
     type Output = Self;
 
-    /// Performs the [`^`](std::ops::BitOr::bitor) operation for two [`Relation`]s of same `row_count`.
+    /// Performs the [`^`](std::ops::BitOr::bitor) operation for two [`Relation`]s of same `row_count` and number of `columns`.
     ///
-    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    /// Panics if the two [`Relation`]s don't have the same `row_count` and number of `columns`.
     fn bitor(self, rhs: Self) -> Self::Output {
         if self.is_empty() {
             return rhs.clone();
@@ -1150,9 +1182,9 @@ impl BitOr for Relation {
 impl BitXor for Relation {
     type Output = Self;
 
-    /// Performs the [`^`](std::ops::BitXor::bitxor) operation for two [`Relation`]s of same `row_count`.
+    /// Performs the [`^`](std::ops::BitXor::bitxor) operation for two [`Relation`]s of same `row_count` and number of `columns`.
     ///
-    /// Panics if the two [`Relation`]s don't have the same `row_count`.
+    /// Panics if the two [`Relation`]s don't have the same `row_count` and number of `columns`.
     fn bitxor(self, rhs: Self) -> Self::Output {
         if self.is_empty() {
             return rhs.clone();
@@ -1261,7 +1293,7 @@ impl fmt::Display for XGrouping<'_> {
     }
 }
 
-/// Represents an *x-group* of [`Column`]s that are [`Column::is_disjoint`] with all other [`Column`]s in the [`Relation`].
+/// Represents an *x-group* of [`Column`]s that are [`disjoint`](Column::is_disjoint()) with all other [`Column`]s in the [`Relation`].
 ///
 /// Each [`XGroup`] collects the [`Column`]s that share a relation (`true`) for some row with at least one other member of the [`XGroup`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1645,6 +1677,16 @@ mod tests {
     }
 
     #[test]
+    fn col_not_works() {
+        let empty = Column::new();
+        let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
+        let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
+        assert_eq!(!empty.clone(), empty, "Column::not() failed to leave empty unchanged");
+        assert_eq!(!c0, Column::from(vec![!0x0000u16, !0x0000u16]));
+        assert_eq!(!c1, Column::from(vec![!0x3000u16, !0x000fu16]));
+    }
+
+    #[test]
     fn col_bitand_works() {
         let empty = Column::new();
         let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
@@ -1899,6 +1941,84 @@ mod tests {
         assert_eq!(c.row_count, 64);
         assert_eq!(c.trim_row_count(), 60);
         assert_eq!(c.row_count, 60);
+    }
+
+    #[test]
+    fn rel_not_works() {
+        let empty = Relation::new();
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+        ]);
+        let r1n = Relation::from(vec![
+            Column::from(vec![!0x0000u16, !0x0000u16]),
+            Column::from(vec![!0x3000u16, !0x000fu16]),
+        ]);
+        assert_eq!(!empty.clone(), empty, "\nRelation::not() failed to leave empty unchanged");
+        assert_eq!(!r1.clone(), r1n, "\nRelation::not() failed for\n {:?}", r1);
+    }
+
+    #[test]
+    fn rel_bitand_works() {
+        let empty = Relation::new();
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+        ]);
+        let r2 = Relation::from(vec![
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+            Column::from(vec![0x1000u16, 0x0001u16]),
+            ]);
+        let r3 = Relation::from(vec![
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x1000u16, 0x0001u16]),
+            ]);
+        assert_eq!(empty.clone().bitand(empty.clone()), empty, "\nRelation::bitand() failed for:\n {:?}\n {:?}",empty, empty);
+        assert_eq!(empty.clone().bitand(r1.clone()), empty, "\nRelation::bitand() failed for:\n {:?}\n {:?}",empty, r1);
+        assert_eq!(r1.clone().bitand(r2.clone()), r3, "\nRelation::bitand() failed for:\n {:?}\n {:?}",r1, r2);
+        assert_eq!(r2.clone().bitand(r1.clone()), r3, "\nRelation::bitand() failed for:\n {:?}\n {:?}",r2, r1);
+    }
+
+    #[test]
+    fn rel_bitor_works() {
+        let empty = Relation::new();
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+        ]);
+        let r2 = Relation::from(vec![
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+            Column::from(vec![0x1000u16, 0x0001u16]),
+            ]);
+        let r3 = Relation::from(vec![
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+            ]);
+        assert_eq!(empty.clone().bitor(empty.clone()), empty, "\nRelation::bitor() failed for:\n {:?}\n {:?}", empty, empty);
+        assert_eq!(empty.clone().bitor(r1.clone()), r1, "\nRelation::bitor() failed for:\n {:?}\n {:?}", empty, r1);
+        assert_eq!(r1.clone().bitor(r2.clone()), r3, "\nRelation::bitor() failed for:\n {:?}\n {:?}", r1, r2);
+        assert_eq!(r2.clone().bitor(r1.clone()), r3, "\nRelation::bitor() failed for:\n {:?}\n {:?}", r2, r1);
+    }
+
+    #[test]
+    fn rel_bitxor_works() {
+        let empty = Relation::new();
+        let r1 = Relation::from(vec![
+            Column::from(vec![0x0000u16, 0x0000u16]),
+            Column::from(vec![0x3000u16, 0x000fu16]),
+        ]);
+        let r2 = Relation::from(vec![
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+            Column::from(vec![0x1000u16, 0x0001u16]),
+            ]);
+        let r3 = Relation::from(vec![
+            Column::from(vec![0x100fu16, 0x0f3fu16]),
+            Column::from(vec![0x2000u16, 0x000eu16]),
+            ]);
+        assert_eq!(empty.clone().bitxor(empty.clone()), empty, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", empty, empty);
+        assert_eq!(empty.clone().bitxor(r1.clone()), r1, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", empty, r1);
+        assert_eq!(r1.clone().bitxor(r2.clone()), r3, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", r1, r2);
+        assert_eq!(r2.clone().bitxor(r1.clone()), r3, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", r2, r1);
     }
 
     #[test]
