@@ -1,5 +1,7 @@
 #! /usr/bin/env lua
 
+-- [ ] TODO fix E4_17 result should be 8 because 2 col duplicates not 1
+
 --[[
   rel_test
 --]]
