@@ -1,6 +1,6 @@
 //! # A Library for Calculations with Binary Relations
 //!
-//! The `relmetric` library creates an abstraction of a (binary) relation---a 2x2 matrix of zero's and one's representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`], [`Column`], [`Matches`], and [`XGrouping`], and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::metric()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
+//! The `relmetric` library creates an abstraction of a (binary) relation---a 2x2 matrix of zero's and one's representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`], [`Column`], [`Matches`], and [`XGrouping`], and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::distance()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
 //!
 //! # Overview
 //!
@@ -15,7 +15,7 @@
 //! let r2 = Relation::new();
 //! assert!(r2.is_empty());
 //! assert_eq!(r1.min_weight(&r2), 1);
-//! assert_eq!(r1.metric(&r2), 1);
+//! assert_eq!(r1.distance(&r2), 1);
 //! ```
 //! ## Example 2
 //!
@@ -33,8 +33,8 @@
 //!     Column::from(vec![0b1011u8]),
 //!     Column::from(vec![0b0101u8]),
 //! ]);
-//! assert_eq!(r1.metric(&r2), 2);
-//! assert_eq!(r2.metric(&r1), 2);
+//! assert_eq!(r1.distance(&r2), 2);
+//! assert_eq!(r2.distance(&r1), 2);
 //! r1.trim_row_count();
 //! let pretty_r1 = "\
 //! 1110
@@ -56,8 +56,9 @@
 //! ## Other Cool Stuff
 //!
 //! - Calculate the [*kappa* bound](Relation::kappa()) defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+//! - Iterate over all *n*^(*k*) (combinatorial) variations of *k* choices from a set of *n* numbers, with replacement using the [`Matches`] [`Iterator`](std::iter::Iterator).
 //! - Pretty-print both a [`Relation`] and an [`XGrouping`] with the standard format [`Display`](std::fmt::Display).
-//! - Show easily human-readable binary and hexadecimal formats for both [`Column`]s and [`Relation`]s using [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
+//! - Show easily human-readable binary and hexadecimal forms of both [`Column`]s and [`Relation`]s using the standard formats [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
 //! - Total lexical ordering of [`Column`]s and [`Relation`]s.
 //! - Binary arithmetic for both [`Column`]s and [`Relation`]s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
 //!
@@ -224,7 +225,7 @@ impl Column {
 
     /// Returns 1 + the highest row index with a `true` bit.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].
+    /// **BEWARE: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].**
     pub fn max_true_bit(&self) -> usize {
         let n = self.bit_field.len();
         let mut res = n * u8::BITS as usize;
@@ -243,7 +244,7 @@ impl Column {
 
     /// Sets and returns the `row_count` to match the `max_true_bit()`.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].
+    /// **BEWARE: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for this [`Column`].**
     pub fn trim_row_count(&mut self) -> usize {
         self.set_row_count(self.max_true_bit())
     }
@@ -678,7 +679,7 @@ impl Relation {
 
     /// Returns the index of the highest `true` bit of its [`Column`]s.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.
+    /// **BEWARE: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.**
     pub fn max_true_bit(&self) -> usize {
         self.columns
             .iter()
@@ -687,7 +688,7 @@ impl Relation {
 
     /// Sets and returns the `row_count` to match the `max_true_bit()`.
     ///
-    /// NB: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.
+    /// **BEWARE: Ignores leading `false` bits; so can be "too short" if the high-order rows happen to be `false` for all [`Column`]s.**
     pub fn trim_row_count(&mut self) -> usize {
         let max_true_bit = self.max_true_bit();
         for c in &mut self.columns {
@@ -996,7 +997,7 @@ impl Relation {
     ///
     /// # Example
     ///
-    pub fn metric(&self, other: &Relation) -> u32 {
+    pub fn distance(&self, other: &Relation) -> u32 {
         let from_col_count = if self.is_empty() {0} else {self.columns.len()};
         let to_col_count = if other.is_empty() {0} else {other.columns.len()};
 
@@ -2417,7 +2418,7 @@ mod tests {
             }],
         };
         let ex1_r2 = Relation::new();
-        let ex1_res = ex1_r1.metric(&ex1_r2);
+        let ex1_res = ex1_r1.distance(&ex1_r2);
         let ex1_want = 1;
         assert_eq!(ex1_res, ex1_want, "\nRelation::metric fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_r1, ex1_r2, ex1_want, ex1_res);
 
@@ -2434,7 +2435,7 @@ mod tests {
             Column::from(vec![0b0101u8]),
         ]);
         // ex2_r2.trim_row_count();
-        let ex2_res = ex2_r2.metric(&ex2_r1);
+        let ex2_res = ex2_r2.distance(&ex2_r1);
         let ex2_want = 2;
         assert_eq!(ex2_res, ex2_want, "\nRelation::metric fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r2, ex2_r1, ex2_want, ex2_res);
     }
