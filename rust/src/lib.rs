@@ -73,7 +73,6 @@ use std::{
     iter::zip,
     ops::{BitAnd, BitOr, BitXor, Index, Sub, Not},
 };
-use byteorder::{BigEndian, WriteBytesExt};
 
 /// Represents the relations one item in one set has with all items of the other set in a [`Relation`].
 ///
@@ -298,55 +297,38 @@ impl Column {
 
 }
 
-// Since single bytes, endian-ness is irrelevant: included for completeness
 impl From<Vec<u8>> for Column {
     fn from(bits: Vec<u8>) -> Self {
-        let mut new_bits: Vec<u8> = Vec::new();
-        for elem in bits {
-            new_bits.write_u8(elem).unwrap();
-        }
         Column {
-            row_count: new_bits.len() * 8,
-            bit_field: new_bits,
+            row_count: bits.len() * u8::BITS as usize,
+            bit_field: bits,
         }
     }
 }
 
 impl From<Vec<u16>> for Column {
     fn from(bits: Vec<u16>) -> Self {
-        let mut new_bits: Vec<u8> = Vec::new();
-        for elem in bits {
-            new_bits.write_u16::<BigEndian>(elem).unwrap();
-        }
         Column {
-            row_count: new_bits.len() * 8,
-            bit_field: new_bits,
+            row_count: bits.len() * u16::BITS as usize,
+            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
         }
     }
 }
 
 impl From<Vec<u32>> for Column {
     fn from(bits: Vec<u32>) -> Self {
-        let mut new_bits: Vec<u8> = Vec::new();
-        for elem in bits {
-            new_bits.write_u32::<BigEndian>(elem).unwrap();
-        }
         Column {
-            row_count: new_bits.len() * 8,
-            bit_field: new_bits,
+            row_count: bits.len() * u32::BITS as usize,
+            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
         }
     }
 }
 
 impl From<Vec<u64>> for Column {
     fn from(bits: Vec<u64>) -> Self {
-        let mut new_bits: Vec<u8> = Vec::new();
-        for elem in bits {
-            new_bits.write_u64::<BigEndian>(elem).unwrap();
-        }
         Column {
-            row_count: new_bits.len() * 8,
-            bit_field: new_bits,
+            row_count: bits.len() * u64::BITS as usize,
+            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
         }
     }
 }
