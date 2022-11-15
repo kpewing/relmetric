@@ -1,77 +1,74 @@
-//! # A Library for Calculations with Binary Relations
-//!
-//! The `relmetric` library creates an abstraction of a (binary) relation---a 2x2 matrix of zero's and one's representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`], [`Column`], [`Matches`], and [`XGrouping`], and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::distance()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
-//!
-//! # Overview
-//!
-//! As a quick overview, we reproduce the calculations of Examples 1 and 2 in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^3]
-//!
-//! ## Example 1
-//!
-//! ```
-//! use relmetric::*;
-//!
-//! let r1 = Relation::from(vec![Column::from(vec![1u8])]);
-//! let r2 = Relation::new();
-//! assert!(r2.is_empty());
-//! assert_eq!(r1.min_weight(&r2), 1);
-//! assert_eq!(r1.distance(&r2), 1);
-//! ```
-//! ## Example 2
-//!
-//! ```
-//! use relmetric::*;
-//!
-//! let mut r1 = Relation::from(vec![
-//!     Column::from(vec![0b1100u8]),
-//!     Column::from(vec![0b1010u8]),
-//!     Column::from(vec![0b1011u8]),
-//!     Column::from(vec![0b0011u8]),
-//! ]);
-//! let mut r2 = Relation::from(vec![
-//!     Column::from(vec![0b1100u8]),
-//!     Column::from(vec![0b1011u8]),
-//!     Column::from(vec![0b0101u8]),
-//! ]);
-//! assert_eq!(r1.distance(&r2), 2);
-//! assert_eq!(r2.distance(&r1), 2);
-//! r1.trim_row_count();
-//! let pretty_r1 = "\
-//! 1110
-//! 1000
-//! 0111
-//! 0011
-//! ";
-//! assert_eq!(format!("{}", r1), pretty_r1);
-//! r2.trim_row_count();
-//! let pretty_r2 = "\
-//! 110
-//! 101
-//! 010
-//! 011
-//! ";
-//! assert_eq!(format!("{}", r2), pretty_r2);
-//! ```
-//!
-//! ## Other Cool Stuff
-//!
-//! - Calculate the [*kappa* bound](Relation::kappa()) defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-//! - Iterate over all *n*^(*k*) (combinatorial) variations of *k* choices from a set of *n* numbers, with replacement using the [`Matches`] [`Iterator`](std::iter::Iterator).
-//! - Pretty-print both a [`Relation`] and an [`XGrouping`] with the standard format [`Display`](std::fmt::Display).
-//! - Show easily human-readable binary and hexadecimal forms of both [`Column`]s and [`Relation`]s using the standard formats [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
-//! - Total lexical ordering of [`Column`]s and [`Relation`]s.
-//! - Binary arithmetic for both [`Column`]s and [`Relation`]s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
-//!
-//! [^1]: Definitions 1 and 2, [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
-//!
-//! [^2]: Theorem 2, [*id*, p. 33](https://arxiv.org/abs/2105.01690).
-//!
-//! [^3]: Examples 1 and 2, [*id*, pp. 10-11](https://arxiv.org/abs/2105.01690).
+/*! # A Library for Calculations with Binary Relations
+
+The `relmetric` library creates an abstraction of a (binary) relation---a 2-dimensional matrix of zeros and ones representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`], [`Column`], [`Matches`], and [`XGrouping`], and methods like [`Relation::new()`] and [`Relation::set_col`] to manipulate them. Among many other methods, the crate also provides [`Relation::weight()`] and [`Relation::distance()`] to calculate the *weight* of a [`Matches`] function between two [`Relation`]s and the *distance* between two [`Relation`]s, as defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`], the method [`Relation::rel_dist_bound`] calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
+
+# Overview
+
+As a quick overview, we reproduce the calculations of Examples 1 and 2 in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^3]
+
+## Example 1
+```
+use relmetric::*;
+let r1 = Relation::from(vec![Column::from(vec![1u8])]);
+let r2 = Relation::new();
+assert!(r2.is_empty());
+assert_eq!(r1.min_weight(&r2), 1);
+assert_eq!(r1.distance(&r2), 1);
+```
+
+## Example 2
+```
+use relmetric::*;
+let mut r1 = Relation::from(vec![
+    Column::from(vec![0b1100u8]),
+    Column::from(vec![0b1010u8]),
+    Column::from(vec![0b1011u8]),
+    Column::from(vec![0b0011u8]),
+]);
+let mut r2 = Relation::from(vec![
+    Column::from(vec![0b1100u8]),
+    Column::from(vec![0b1011u8]),
+    Column::from(vec![0b0101u8]),
+]);
+assert_eq!(r1.distance(&r2), 2);
+assert_eq!(r2.distance(&r1), 2);
+r1.trim_row_count();
+let pretty_r1 = "\
+1110
+1000
+0111
+0011
+";
+assert_eq!(format!("{}", r1), pretty_r1);
+r2.trim_row_count();
+let pretty_r2 = "\
+110
+101
+010
+011
+";
+assert_eq!(format!("{}", r2), pretty_r2);
+```
+## Other Cool Stuff
+
+- Calculate the [*kappa* bound](Relation::kappa()) defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+- Iterate over all *n*^(*k*) (combinatorial) variations of *k* choices from a set of *n* numbers, with replacement using the [`Matches`] [`Iterator`](std::iter::Iterator).
+- Pretty-print both a [`Relation`] and an [`XGrouping`] with the standard format [`Display`](std::fmt::Display).
+- Show easily human-readable binary and hexadecimal forms of both [`Column`]s and [`Relation`]s using the standard formats [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
+- Total lexical ordering of [`Column`]s and [`Relation`]s.
+- Binary arithmetic for both [`Column`]s and [`Relation`]s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
+
+[^1]: Definitions 1 and 2, [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
+
+[^2]: Theorem 2, [*id*, p. 33](https://arxiv.org/abs/2105.01690).
+
+[^3]: Examples 1 and 2, [*id*, pp. 10-11](https://arxiv.org/abs/2105.01690).
+*/
 
 use std::{
     fmt::{self},
     iter::zip,
-    ops::{BitAnd, BitOr, BitXor, Index, Sub, Not},
+    ops::{BitAnd, BitOr, BitXor, Index, Not, Sub},
 };
 
 /// Represents the relations one item in one set has with all items of the other set in a [`Relation`].
@@ -294,7 +291,6 @@ impl Column {
             return res;
         }
     }
-
 }
 
 impl From<Vec<u8>> for Column {
@@ -310,7 +306,13 @@ impl From<Vec<u16>> for Column {
     fn from(bits: Vec<u16>) -> Self {
         Column {
             row_count: bits.len() * u16::BITS as usize,
-            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
+            bit_field: bits
+                .iter()
+                .fold(vec![], |mut acc, x| {
+                    acc.push(x.to_be_bytes().to_vec());
+                    acc
+                })
+                .concat(),
         }
     }
 }
@@ -319,7 +321,13 @@ impl From<Vec<u32>> for Column {
     fn from(bits: Vec<u32>) -> Self {
         Column {
             row_count: bits.len() * u32::BITS as usize,
-            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
+            bit_field: bits
+                .iter()
+                .fold(vec![], |mut acc, x| {
+                    acc.push(x.to_be_bytes().to_vec());
+                    acc
+                })
+                .concat(),
         }
     }
 }
@@ -328,7 +336,13 @@ impl From<Vec<u64>> for Column {
     fn from(bits: Vec<u64>) -> Self {
         Column {
             row_count: bits.len() * u64::BITS as usize,
-            bit_field: bits.iter().fold(vec![], |mut acc, x|{ acc.push(x.to_be_bytes().to_vec()); acc }).concat(),
+            bit_field: bits
+                .iter()
+                .fold(vec![], |mut acc, x| {
+                    acc.push(x.to_be_bytes().to_vec());
+                    acc
+                })
+                .concat(),
         }
     }
 }
@@ -485,7 +499,7 @@ impl Not for Column {
     fn not(self) -> Self::Output {
         Column {
             row_count: self.row_count,
-            bit_field: self.bit_field.iter().map(|x|!x).collect(),
+            bit_field: self.bit_field.iter().map(|x| !x).collect(),
         }
     }
 }
@@ -743,7 +757,7 @@ impl Relation {
             return XGrouping {
                 relation: &self,
                 partition: res,
-            }
+            };
         }
     }
 
@@ -954,7 +968,7 @@ impl Relation {
 
         if self_empty || other_empty {
             // weight() will ignore matches
-            return self.weight(&other, &vec![0])
+            return self.weight(&other, &vec![0]);
         } else {
             // initialize worst case
             let mut res = to_col_count as u32 * other.get_row_count() as u32;
@@ -963,9 +977,11 @@ impl Relation {
             for m in Matches::new(from_col_count, to_col_count) {
                 let w = self.weight(&other, &m);
                 println!("min_weight:{} with weight:{} for match:{:?}", res, w, m);
-                if w < res { res = w; }
+                if w < res {
+                    res = w;
+                }
             }
-            return res
+            return res;
         }
     }
 
@@ -980,13 +996,21 @@ impl Relation {
     /// # Example
     ///
     pub fn distance(&self, other: &Relation) -> u32 {
-        let from_col_count = if self.is_empty() {0} else {self.columns.len()};
-        let to_col_count = if other.is_empty() {0} else {other.columns.len()};
+        let from_col_count = if self.is_empty() {
+            0
+        } else {
+            self.columns.len()
+        };
+        let to_col_count = if other.is_empty() {
+            0
+        } else {
+            other.columns.len()
+        };
 
         if from_col_count <= to_col_count {
-            return self.min_weight(other)
+            return self.min_weight(other);
         } else {
-            return other.min_weight(self)
+            return other.min_weight(self);
         }
     }
 }
@@ -1003,10 +1027,7 @@ impl From<Vec<Column>> for Relation {
                 .fold(true, |acc, x| acc && (x.row_count == row_count)),
             "From<Vec<Column>> for Relation requires all Columns to have same row_count"
         );
-        Relation {
-            row_count,
-            columns,
-        }
+        Relation { row_count, columns }
     }
 }
 
@@ -1023,10 +1044,7 @@ impl From<Vec<Vec<u8>>> for Relation {
                 .fold(true, |acc, x| acc && (x.row_count == row_count)),
             "From<Vec<Vec<u8>> for Relation requires the inner Vec<u8> to have same length"
         );
-        Relation {
-            row_count,
-            columns,
-        }
+        Relation { row_count, columns }
     }
 }
 
@@ -1109,7 +1127,7 @@ impl Not for Relation {
     fn not(self) -> Self::Output {
         Relation {
             row_count: self.row_count,
-            columns: self.columns.iter().map(|x|!x.clone()).collect(),
+            columns: self.columns.iter().map(|x| !x.clone()).collect(),
         }
     }
 }
@@ -1133,7 +1151,7 @@ impl BitAnd for Relation {
                 columns: zip(self.columns.clone(), rhs.columns.clone())
                     .map(|(s, r)| s & r)
                     .collect::<Vec<Column>>(),
-                };
+            };
         }
     }
 }
@@ -1342,14 +1360,13 @@ impl Iterator for Matches {
         if self.matches.len() == 0 {
             self.matches = vec![0; self.cols1];
             self.col = 0;
-            return Some(self.matches.clone())
+            return Some(self.matches.clone());
         } else if self.matches[self.col] + 1 < self.cols2 {
             self.matches[self.col] += 1;
             return Some(self.matches.clone());
         } else {
             self.col += 1;
-            while self.col < self.cols1
-                && self.matches[self.col] + 1 == self.cols2 {
+            while self.col < self.cols1 && self.matches[self.col] + 1 == self.cols2 {
                 self.col += 1
             }
             if self.col == self.cols1 {
@@ -1664,7 +1681,11 @@ mod tests {
         let empty = Column::new();
         let c0 = Column::from(vec![0x0000u16, 0x0000u16]);
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
-        assert_eq!(!empty.clone(), empty, "Column::not() failed to leave empty unchanged");
+        assert_eq!(
+            !empty.clone(),
+            empty,
+            "Column::not() failed to leave empty unchanged"
+        );
         assert_eq!(!c0, Column::from(vec![!0x0000u16, !0x0000u16]));
         assert_eq!(!c1, Column::from(vec![!0x3000u16, !0x000fu16]));
     }
@@ -1888,22 +1909,57 @@ mod tests {
     #[test]
     fn sets_and_gets_col() {
         let c0 = Column::new();
-        let zero32 = Column {row_count: 32, bit_field: vec![0;4]};
+        let zero32 = Column {
+            row_count: 32,
+            bit_field: vec![0; 4],
+        };
         let c1 = Column::from(vec![0x3000u16, 0x000fu16]);
         let c2 = Column::from(vec![0x0000u16, 0x0000u16]);
         let mut r1 = Relation::from(vec![c1.clone(), c2.clone()]);
 
-        assert_eq!(r1.get_col(0), &c1, "\nFails to get_col[{}] from:{:?}", 0, r1);
-        assert_eq!(r1.get_col(1), &c2, "\nFails to get_col[{}] from:{:?}", 1, r1);
+        assert_eq!(
+            r1.get_col(0),
+            &c1,
+            "\nFails to get_col[{}] from:{:?}",
+            0,
+            r1
+        );
+        assert_eq!(
+            r1.get_col(1),
+            &c2,
+            "\nFails to get_col[{}] from:{:?}",
+            1,
+            r1
+        );
 
         r1.set_col(0, c0.clone());
-        assert_eq!(r1.get_col(0), &zero32, "\nFails to set_col[{}] to empty of proper length, got:\n {:?}", 0, r1);
+        assert_eq!(
+            r1.get_col(0),
+            &zero32,
+            "\nFails to set_col[{}] to empty of proper length, got:\n {:?}",
+            0,
+            r1
+        );
 
         r1.set_col(0, c2.clone());
-        assert_eq!(r1.get_col(0), &c2, "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}", 0, &c2, r1);
+        assert_eq!(
+            r1.get_col(0),
+            &c2,
+            "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}",
+            0,
+            &c2,
+            r1
+        );
 
         r1.set_col(1, c1.clone());
-        assert_eq!(r1.get_col(1), &c1, "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}", 1, &c1, r1);
+        assert_eq!(
+            r1.get_col(1),
+            &c1,
+            "\nFails to set_col[{}] to non-empty {:?}, got:\n {:?}",
+            1,
+            &c1,
+            r1
+        );
     }
 
     #[test]
@@ -1937,7 +1993,11 @@ mod tests {
             Column::from(vec![!0x0000u16, !0x0000u16]),
             Column::from(vec![!0x3000u16, !0x000fu16]),
         ]);
-        assert_eq!(!empty.clone(), empty, "\nRelation::not() failed to leave empty unchanged");
+        assert_eq!(
+            !empty.clone(),
+            empty,
+            "\nRelation::not() failed to leave empty unchanged"
+        );
         assert_eq!(!r1.clone(), r1n, "\nRelation::not() failed for\n {:?}", r1);
     }
 
@@ -1951,15 +2011,39 @@ mod tests {
         let r2 = Relation::from(vec![
             Column::from(vec![0x100fu16, 0x0f3fu16]),
             Column::from(vec![0x1000u16, 0x0001u16]),
-            ]);
+        ]);
         let r3 = Relation::from(vec![
             Column::from(vec![0x0000u16, 0x0000u16]),
             Column::from(vec![0x1000u16, 0x0001u16]),
-            ]);
-        assert_eq!(empty.clone().bitand(empty.clone()), empty, "\nRelation::bitand() failed for:\n {:?}\n {:?}",empty, empty);
-        assert_eq!(empty.clone().bitand(r1.clone()), empty, "\nRelation::bitand() failed for:\n {:?}\n {:?}",empty, r1);
-        assert_eq!(r1.clone().bitand(r2.clone()), r3, "\nRelation::bitand() failed for:\n {:?}\n {:?}",r1, r2);
-        assert_eq!(r2.clone().bitand(r1.clone()), r3, "\nRelation::bitand() failed for:\n {:?}\n {:?}",r2, r1);
+        ]);
+        assert_eq!(
+            empty.clone().bitand(empty.clone()),
+            empty,
+            "\nRelation::bitand() failed for:\n {:?}\n {:?}",
+            empty,
+            empty
+        );
+        assert_eq!(
+            empty.clone().bitand(r1.clone()),
+            empty,
+            "\nRelation::bitand() failed for:\n {:?}\n {:?}",
+            empty,
+            r1
+        );
+        assert_eq!(
+            r1.clone().bitand(r2.clone()),
+            r3,
+            "\nRelation::bitand() failed for:\n {:?}\n {:?}",
+            r1,
+            r2
+        );
+        assert_eq!(
+            r2.clone().bitand(r1.clone()),
+            r3,
+            "\nRelation::bitand() failed for:\n {:?}\n {:?}",
+            r2,
+            r1
+        );
     }
 
     #[test]
@@ -1972,15 +2056,39 @@ mod tests {
         let r2 = Relation::from(vec![
             Column::from(vec![0x100fu16, 0x0f3fu16]),
             Column::from(vec![0x1000u16, 0x0001u16]),
-            ]);
+        ]);
         let r3 = Relation::from(vec![
             Column::from(vec![0x100fu16, 0x0f3fu16]),
             Column::from(vec![0x3000u16, 0x000fu16]),
-            ]);
-        assert_eq!(empty.clone().bitor(empty.clone()), empty, "\nRelation::bitor() failed for:\n {:?}\n {:?}", empty, empty);
-        assert_eq!(empty.clone().bitor(r1.clone()), r1, "\nRelation::bitor() failed for:\n {:?}\n {:?}", empty, r1);
-        assert_eq!(r1.clone().bitor(r2.clone()), r3, "\nRelation::bitor() failed for:\n {:?}\n {:?}", r1, r2);
-        assert_eq!(r2.clone().bitor(r1.clone()), r3, "\nRelation::bitor() failed for:\n {:?}\n {:?}", r2, r1);
+        ]);
+        assert_eq!(
+            empty.clone().bitor(empty.clone()),
+            empty,
+            "\nRelation::bitor() failed for:\n {:?}\n {:?}",
+            empty,
+            empty
+        );
+        assert_eq!(
+            empty.clone().bitor(r1.clone()),
+            r1,
+            "\nRelation::bitor() failed for:\n {:?}\n {:?}",
+            empty,
+            r1
+        );
+        assert_eq!(
+            r1.clone().bitor(r2.clone()),
+            r3,
+            "\nRelation::bitor() failed for:\n {:?}\n {:?}",
+            r1,
+            r2
+        );
+        assert_eq!(
+            r2.clone().bitor(r1.clone()),
+            r3,
+            "\nRelation::bitor() failed for:\n {:?}\n {:?}",
+            r2,
+            r1
+        );
     }
 
     #[test]
@@ -1993,15 +2101,39 @@ mod tests {
         let r2 = Relation::from(vec![
             Column::from(vec![0x100fu16, 0x0f3fu16]),
             Column::from(vec![0x1000u16, 0x0001u16]),
-            ]);
+        ]);
         let r3 = Relation::from(vec![
             Column::from(vec![0x100fu16, 0x0f3fu16]),
             Column::from(vec![0x2000u16, 0x000eu16]),
-            ]);
-        assert_eq!(empty.clone().bitxor(empty.clone()), empty, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", empty, empty);
-        assert_eq!(empty.clone().bitxor(r1.clone()), r1, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", empty, r1);
-        assert_eq!(r1.clone().bitxor(r2.clone()), r3, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", r1, r2);
-        assert_eq!(r2.clone().bitxor(r1.clone()), r3, "\nRelation::bitxor() failed for:\n {:?}\n {:?}", r2, r1);
+        ]);
+        assert_eq!(
+            empty.clone().bitxor(empty.clone()),
+            empty,
+            "\nRelation::bitxor() failed for:\n {:?}\n {:?}",
+            empty,
+            empty
+        );
+        assert_eq!(
+            empty.clone().bitxor(r1.clone()),
+            r1,
+            "\nRelation::bitxor() failed for:\n {:?}\n {:?}",
+            empty,
+            r1
+        );
+        assert_eq!(
+            r1.clone().bitxor(r2.clone()),
+            r3,
+            "\nRelation::bitxor() failed for:\n {:?}\n {:?}",
+            r1,
+            r2
+        );
+        assert_eq!(
+            r2.clone().bitxor(r1.clone()),
+            r3,
+            "\nRelation::bitxor() failed for:\n {:?}\n {:?}",
+            r2,
+            r1
+        );
     }
 
     #[test]
@@ -2341,16 +2473,16 @@ mod tests {
 
     #[test]
     fn match_iterator_works() {
-        let mut m = Matches::new(2,3);
-        assert_eq!(m.next(), Some(vec![0,0]));
-        assert_eq!(m.next(), Some(vec![1,0]));
-        assert_eq!(m.next(), Some(vec![2,0]));
-        assert_eq!(m.next(), Some(vec![0,1]));
-        assert_eq!(m.next(), Some(vec![1,1]));
-        assert_eq!(m.next(), Some(vec![2,1]));
-        assert_eq!(m.next(), Some(vec![0,2]));
-        assert_eq!(m.next(), Some(vec![1,2]));
-        assert_eq!(m.next(), Some(vec![2,2]));
+        let mut m = Matches::new(2, 3);
+        assert_eq!(m.next(), Some(vec![0, 0]));
+        assert_eq!(m.next(), Some(vec![1, 0]));
+        assert_eq!(m.next(), Some(vec![2, 0]));
+        assert_eq!(m.next(), Some(vec![0, 1]));
+        assert_eq!(m.next(), Some(vec![1, 1]));
+        assert_eq!(m.next(), Some(vec![2, 1]));
+        assert_eq!(m.next(), Some(vec![0, 2]));
+        assert_eq!(m.next(), Some(vec![1, 2]));
+        assert_eq!(m.next(), Some(vec![2, 2]));
         assert_eq!(m.next(), None);
     }
 
@@ -2366,7 +2498,11 @@ mod tests {
         let ex1_r2 = Relation::new();
         let ex1_res = ex1_r1.min_weight(&ex1_r2);
         let ex1_want = 1;
-        assert_eq!(ex1_res, ex1_want, "\nRelation::min_weight fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_r1, ex1_r2, ex1_want, ex1_res);
+        assert_eq!(
+            ex1_res, ex1_want,
+            "\nRelation::min_weight fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}",
+            ex1_r1, ex1_r2, ex1_want, ex1_res
+        );
 
         let ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
@@ -2383,11 +2519,19 @@ mod tests {
         // ex2_r2.trim_row_count();
         let ex2_res12 = ex2_r1.min_weight(&ex2_r2);
         let ex2_want12 = 1;
-        assert_eq!(ex2_res12, ex2_want12, "\nRelation::min_weight fails Ex 2 r1->r2 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+        assert_eq!(
+            ex2_res12, ex2_want12,
+            "\nRelation::min_weight fails Ex 2 r1->r2 for\n {:b}\n {:b}\nwanted:{} got:{}",
+            ex2_r1, ex2_r2, ex2_want12, ex2_res12
+        );
 
         let ex2_res21 = ex2_r2.min_weight(&ex2_r1);
         let ex2_want21 = 2;
-        assert_eq!(ex2_res21, ex2_want21, "\nRelation::min_weight fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r2, ex2_r1, ex2_want21, ex2_res21);
+        assert_eq!(
+            ex2_res21, ex2_want21,
+            "\nRelation::min_weight fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}",
+            ex2_r2, ex2_r1, ex2_want21, ex2_res21
+        );
     }
 
     #[test]
@@ -2402,7 +2546,11 @@ mod tests {
         let ex1_r2 = Relation::new();
         let ex1_res = ex1_r1.distance(&ex1_r2);
         let ex1_want = 1;
-        assert_eq!(ex1_res, ex1_want, "\nRelation::metric fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_r1, ex1_r2, ex1_want, ex1_res);
+        assert_eq!(
+            ex1_res, ex1_want,
+            "\nRelation::metric fails Ex 1 for\n {:b}\n {:b}\nwanted:{} got:{}",
+            ex1_r1, ex1_r2, ex1_want, ex1_res
+        );
 
         let ex2_r1 = Relation::from(vec![
             Column::from(vec![0b1100u8]),
@@ -2419,7 +2567,10 @@ mod tests {
         // ex2_r2.trim_row_count();
         let ex2_res = ex2_r2.distance(&ex2_r1);
         let ex2_want = 2;
-        assert_eq!(ex2_res, ex2_want, "\nRelation::metric fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}", ex2_r2, ex2_r1, ex2_want, ex2_res);
+        assert_eq!(
+            ex2_res, ex2_want,
+            "\nRelation::metric fails Ex 2 r2->r1 for\n {:b}\n {:b}\nwanted:{} got:{}",
+            ex2_r2, ex2_r1, ex2_want, ex2_res
+        );
     }
-
 }
