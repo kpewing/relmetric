@@ -69,7 +69,10 @@ use std::{
     fmt::{self, Write},
     iter::zip,
     ops::{BitAnd, BitOr, BitXor, Index, Not, Sub},
+    collections::BTreeMap,
 };
+
+use std::ops::Bound::{Excluded, Unbounded};
 
 /// Represents the relations one item in one set has with all items of the other set in a [`Relation`].
 ///
@@ -256,7 +259,7 @@ impl Column {
         res
     }
 
-    /// Returns a collection of *child* [`Column`]s, *i.e.*, all possible [`Columns`]s with one of the *parent*'s `true` bits set to `false`
+    /// Returns a collection of *child* [`Column`]s, *i.e.*, all possible [`Column`]s with one of the *parent*'s `true` bits set to `false`
     pub fn children(&self) -> Vec<Column> {
         let mut res: Vec<Column> = vec![];
         for i in 0..self.row_count {
@@ -530,7 +533,7 @@ impl fmt::UpperHex for Column {
 impl Not for Column {
     type Output = Self;
 
-    /// Performs the unary [`!`](std::ops::Not) operation for a [`Column`].
+    /// Performs the unary [`!!`](std::ops::Not) operation for a [`Column`].
     fn not(self) -> Self::Output {
         Column {
             row_count: self.row_count,
@@ -798,7 +801,7 @@ impl Relation {
 
     /// Returns the "kappa" value for a [`Relation`].
     ///
-    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     pub fn kappa(&self, max_count: Option<usize>) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
@@ -838,7 +841,7 @@ impl Relation {
 
     /// Returns the bound on the "Relation metric" for "distance" between two [`Relation`]s.
     ///
-    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    /// [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     pub fn rel_dist_bound(&self, other: &Relation) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
 
@@ -914,7 +917,7 @@ impl Relation {
     ///
     /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] returns the highest row-count of ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
     ///
-    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     pub fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32 {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
@@ -991,7 +994,7 @@ impl Relation {
     ///
     /// Panics if non-empty [`Relation`]s don't have same `row_count`.
     ///
-    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     pub fn min_weight(&self, other: &Relation) -> u32 {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
@@ -1023,7 +1026,7 @@ impl Relation {
     ///
     /// The *distance* is defined as the maximum of the minimum *weight* between the [`Relation`]s in each direction. This is achieved in the direction toward the [`Relation`] with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
     ///
-    /// See Kenneth P. Ewing "Bounds for the Distance Between Relations," arXiv:2105.01690.
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     ///
     /// # Example
     ///
@@ -1413,6 +1416,83 @@ impl Iterator for Matches {
     }
 }
 
+
+/// Represents the *Dowker Complex* of a [`Relation`]
+///
+/// The *Dowker Complex* of a [`Relation`] is the [*abstract simplicial complex*](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) on a vertex set comprising the features represented by each *row*, whose *simplices* are sets containing all combinations of vertices having a relation with some object represented by each *column*. Each combination of vertices is called a *face*, and each possible subset of the vertices in a *face* is another *face* and is also included in the *Dowker Complex*. Importantly, this means that each *column* of a [`Relation`] is a *face* in its *Dowker Complex*, but some *faces* in the *Dowker Complex* might not appear as *columns* in the [`Relation`]. Also, the [`Relation`] represents each object with its own *column*, possibly in relation with the same *features* (*i.e.* `true` in the same *rows*) as another object / *column*; the [`Dowker`] represents them with the same *face* and merely counts their multiplicity.
+///
+/// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+///
+pub type RelDowker = BTreeMap<Column, (usize, usize)>;
+
+pub trait Dowker {
+    /// Returns a new [`RelDowker`] of the given [`Relation`]
+    ///
+    /// Creates a [`BTreeMap`](std::collections::BTreeMap) of the [`Relation`]'s [`Column`]s that notes the *dimension* and count of each. Also adds zero-count entries for all its [descendants](Column::is_descendant_of()).
+    fn new(rel: &Relation) -> Self;
+
+    /// Push the given [`Column`] onto the [`Dowker`]
+    ///
+    /// Uses the [`Entry API`](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry) to add a new or modify an existing entry in the [`RelDowker`] for the [`Column`]. As a result, the [`RelDowker`] will have:
+    /// - an entry for the [`Column`] whose value is a tuple of the `size` of this [`Column`] (its *abstract simplicial dimension* + 1, which is the number of `true` bits) and the count of this [`Column`] in the [`Relation`], and
+    /// - entries for all of this [`Column`]'s [children](Column::is_child_of()), *without* increment their counts.
+    /// The entries for [children](Column::is_child_of()) enable `Display` of the [`RelDowker`] as a -90&deg; rotated [Hasse Diagram](https://en.wikipedia.org/wiki/Hasse_diagram).
+    fn push(&mut self, face: &Column);
+
+    /// Returns `true` if the given [`Column`] is not a [descendant](Column::is_descendant_of()) any higher-dimensional [`Column`] in the [`RelDowker`]
+    fn is_maximal(&self, face: &Column) -> bool;
+
+    /// Returns a collection of the [maximal](Dowker::is_maximal()) [`Column`]s in the [`Dowker`]
+    ///
+    /// The set union of [descendants](Column::is_descendant_of()) of the [`generators`] constitutes the full *abstract simplicial complex*.
+    fn generators(&self) -> Vec<Column>;
+}
+
+impl Dowker for RelDowker {
+    fn new(rel: &Relation) -> Self {
+        rel.columns
+            .iter()
+            .fold(
+                BTreeMap::<Column, (usize, usize)>::new(),
+                |mut acc, x| {
+                acc.push(x);
+                acc
+            })
+    }
+
+    fn push(&mut self, face: &Column) {
+        self.entry(face.clone())
+            // .and_modify(|e| *e = (size, e.1 + 1))
+            .and_modify(|(_, count)| *count += 1)
+            .or_insert((face.count_ones(), 1));
+        for k in face.children() {
+            self.entry(k.clone())
+                .or_insert((k.count_ones(), 0));
+        }
+    }
+
+    fn is_maximal(&self, face: &Column) -> bool {
+        self.range((Excluded(face), Unbounded)).all(|(x, _)| !face.is_descendant_of(x))
+    }
+
+    fn generators(&self) -> Vec<Column> {
+        self.iter()
+            .rev()  // ensures no face can descend from a later face
+            .fold(
+                Vec::<Column>::new(),
+                |mut acc, (face, _)|
+                    if ! acc.iter().any(|g| face.is_descendant_of(g)) {
+                        acc.push(face.clone());
+                        acc
+                    } else {
+                        acc
+                    }
+                )
+    }
+}
+
+// Unit tests
+//
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2652,6 +2732,57 @@ mod tests {
         let c4 = Column::from(vec![0b01010001u8, 0b1u8]);
         assert!(c0.count_ones() == 0);
         assert!(c4.count_ones() == 4);
+    }
+
+    #[test]
+    fn dowker_new_works() {
+        let c0 = Column::new();
+        let r0 = Relation::from(vec![c0.clone()]);
+        let d0: RelDowker = Dowker::new(&r0);
+        let mut want: BTreeMap<Column, (usize, usize)> = BTreeMap::new();
+        want.insert(c0, (0,1));
+        assert_eq!(d0, want);
+    }
+
+    #[test]
+    fn dowker_push_col_works() {
+        let c0 = Column::from(vec![0b00u8]);
+        let c1 = Column::from(vec![0b01u8]);
+        let c2 = Column::from(vec![0b10u8]);
+        let c3 = Column::from(vec![0b11u8]);
+        let r1 = Relation::from(vec![c0.clone(), c1.clone(), c3.clone()]);
+        let d1: RelDowker = Dowker::new(&r1);
+        let mut want: BTreeMap<Column, (usize, usize)> = BTreeMap::new();
+        want.insert(c0, (0,1));
+        want.insert(c1, (1,1));
+        want.insert(c2, (1,0));
+        want.insert(c3, (2,1));
+        assert_eq!(d1, want);
+    }
+
+    #[test]
+    fn dowker_is_maximal_works() {
+        let c0 = Column::from(vec![0b00u8, 0b0u8]);
+        let c1 = Column::from(vec![0b01u8, 0b0u8]);
+        let c2 = Column::from(vec![0b10u8, 0b0u8]);
+        let c3 = Column::from(vec![0b11u8, 0b0u8]);
+        let c4 = Column::from(vec![0b0u8, 0b11u8]);
+        let r1 = Relation::from(vec![c0.clone(), c1.clone(), c3.clone(), c2.clone(), c4.clone()]);
+        let d1: RelDowker = Dowker::new(&r1);
+        assert!(d1.is_maximal(&c3));
+        assert!(d1.is_maximal(&c4));
+    }
+
+    #[test]
+    fn dowker_generators_works() {
+        let c0 = Column::from(vec![0b00u8, 0b0u8]);
+        let c1 = Column::from(vec![0b01u8, 0b0u8]);
+        let c2 = Column::from(vec![0b10u8, 0b0u8]);
+        let c3 = Column::from(vec![0b11u8, 0b0u8]);
+        let c4 = Column::from(vec![0b0u8, 0b11u8]);
+        let r1 = Relation::from(vec![c0.clone(), c1.clone(), c3.clone(), c2.clone(), c4.clone()]);
+        let d1: RelDowker = Dowker::new(&r1);
+        assert_eq!(d1.generators(), vec![c3, c4]);
     }
 
 }
