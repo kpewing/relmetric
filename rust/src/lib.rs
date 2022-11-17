@@ -246,7 +246,7 @@ impl Column {
         self.set_row_count(self.max_true_bit())
     }
 
-    /// Returns the number of `true` bits in a [`Column`]
+    /// Returns the number of `true` bits in a [`Column`].
     pub fn count_ones(&self) -> usize {
         let mut res = 0_usize;
         for i in 0..self.row_count {
@@ -259,7 +259,7 @@ impl Column {
         res
     }
 
-    /// Returns a collection of *child* [`Column`]s, *i.e.*, all possible [`Column`]s with one of the *parent*'s `true` bits set to `false`
+    /// Returns a collection of *child* [`Column`]s, *i.e.*, all possible [`Column`]s with one of the *parent*'s `true` bits set to `false`.
     pub fn children(&self) -> Vec<Column> {
         let mut res: Vec<Column> = vec![];
         for i in 0..self.row_count {
@@ -315,7 +315,7 @@ impl Column {
         }
     }
 
-    /// Returns `true` if `other` has no `true` bits that are not `true` in `self`
+    /// Returns `true` if `other` has no `true` bits that are not `true` in `self`.
     ///
     /// Viewing a [`Column`] as the generator of an [*abstract simplicial complex*](https://en.wikipedia.org/wiki/Abstract_simplicial_complex)("asc"), a *descendant* is one of the *faces* of that *asc* other than itself.
     pub fn is_descendant_of(&self, other: &Column) -> bool {
@@ -324,7 +324,7 @@ impl Column {
         s != o && s & o == *self
     }
 
-    /// Returns `true` if `self` and `other` have the same `true` bits except for exactly one `true` bit
+    /// Returns `true` if `self` and `other` have the same `true` bits except for exactly one `true` bit.
     ///
     /// Viewing a [`Column`] as the generator of an [*abstract simplicial complex*](https://en.wikipedia.org/wiki/Abstract_simplicial_complex)("asc"), a *child* is a *face* exactly one *dimension* smaller than the generator.
     pub fn is_child_of(&self, other: &Column) -> bool {
@@ -668,7 +668,7 @@ impl Relation {
         self.columns.len() == 0 || self.columns.iter().fold(true, |acc, x| acc & x.is_empty())
     }
 
-    /// Returns the `n`'th Column in the Relation
+    /// Returns the `n`'th Column in the Relation.
     pub fn get_col(&self, n: usize) -> &Column {
         &self.columns[n]
     }
@@ -1426,7 +1426,7 @@ impl Iterator for Matches {
 pub type RelDowker = BTreeMap<Column, (usize, usize)>;
 
 pub trait Dowker {
-    /// Returns a new [`RelDowker`] of the given [`Relation`]
+    /// Returns a new [`RelDowker`] of the given [`Relation`].
     ///
     /// Creates a [`BTreeMap`](std::collections::BTreeMap) of the [`Relation`]'s [`Column`]s that notes the *dimension* and count of each. Also adds zero-count entries for all its [descendants](Column::is_descendant_of()).
     fn new(rel: &Relation) -> Self;
@@ -1436,16 +1436,20 @@ pub trait Dowker {
     /// Uses the [`Entry API`](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html#method.entry) to add a new or modify an existing entry in the [`RelDowker`] for the [`Column`]. As a result, the [`RelDowker`] will have:
     /// - an entry for the [`Column`] whose value is a tuple of the `size` of this [`Column`] (its *abstract simplicial dimension* + 1, which is the number of `true` bits) and the count of this [`Column`] in the [`Relation`], and
     /// - entries for all of this [`Column`]'s [children](Column::is_child_of()), *without* increment their counts.
-    /// The entries for [children](Column::is_child_of()) enable `Display` of the [`RelDowker`] as a -90&deg; rotated [Hasse Diagram](https://en.wikipedia.org/wiki/Hasse_diagram).
+    /// The entries for [children](Column::is_child_of()) enable `Display` of the [`RelDowker`] in as a -90&deg; rotated [Hasse Diagram](https://en.wikipedia.org/wiki/Hasse_diagram).
     fn push(&mut self, face: &Column);
 
-    /// Returns `true` if the given [`Column`] is not a [descendant](Column::is_descendant_of()) any higher-dimensional [`Column`] in the [`RelDowker`]
+    /// Returns `true` if the given [`Column`] is not a [descendant](Column::is_descendant_of()) any higher-dimensional [`Column`] in the [`RelDowker`].
     fn is_maximal(&self, face: &Column) -> bool;
 
-    /// Returns a collection of the [maximal](Dowker::is_maximal()) [`Column`]s in the [`Dowker`]
+    /// Returns a collection of the [maximal](Dowker::is_maximal()) [`Column`]s in the [`Dowker`].
     ///
-    /// The set union of [descendants](Column::is_descendant_of()) of the [`generators`] constitutes the full *abstract simplicial complex*.
+    /// The set union of their [descendants](Column::is_descendant_of()) constitutes the full *abstract simplicial complex*.
     fn generators(&self) -> Vec<Column>;
+
+    /// Returns a [`String`] showing the [`RelDowker`]'s faces in declining order of size (*i.e.*, by declining *face* *dimension*).
+    fn to_sorted_tree(&self) -> String;
+
 }
 
 impl Dowker for RelDowker {
@@ -1489,6 +1493,31 @@ impl Dowker for RelDowker {
                     }
                 )
     }
+
+    fn to_sorted_tree(&self) -> String {
+        self.iter()
+            .rev()  // largest to smallest
+            .fold(
+                (String::new(), String::from(""), usize::MAX),
+                |(mut s,
+                    mut indent,
+                    mut max_indent),
+                    (face, (size, count))| {
+                        if max_indent == usize::MAX {
+                            max_indent = *size;
+                            write!(s, "{:x}:{}", face, count).unwrap()
+                        } else if *size == max_indent {
+                            write!(s, " {:x}:{}", face, count).unwrap()
+                        } else if *size < max_indent {
+                            indent += &" ".repeat(max_indent - size);
+                            max_indent = *size;
+                            write!(s, "\n{}{:x}:{}", indent, face, count).unwrap();
+                        }
+                        (s, indent, max_indent)
+                    }
+            ).0
+    }
+
 }
 
 // Unit tests
@@ -2783,6 +2812,18 @@ mod tests {
         let r1 = Relation::from(vec![c0.clone(), c1.clone(), c3.clone(), c2.clone(), c4.clone()]);
         let d1: RelDowker = Dowker::new(&r1);
         assert_eq!(d1.generators(), vec![c3, c4]);
+    }
+
+    #[test]
+    fn dowker_to_sorted_tree_works() {
+        let d1: RelDowker = Dowker::new(&Relation::from(vec![
+            Column::from(vec![0b01u8, 0b0u8]),
+            Column::from(vec![0b10u8, 0b0u8]),
+            Column::from(vec![0b11u8, 0b0u8]),
+            Column::from(vec![0b0u8, 0b11u8]),
+        ]));
+        let want = "[03, 00]:1\n [02, 00]:1 [01, 00]:1 [00, 02]:0 [00, 01]:0\n  [00, 00]:0";
+        assert_eq!(d1.to_sorted_tree(), want);
     }
 
 }
