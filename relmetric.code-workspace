@@ -6,7 +6,16 @@
 	],
 	"settings": {
 		"cSpell.words": [
-			"relmetric"
+			"bitand",
+			"bitor",
+			"bitxor",
+			"blockcounts",
+			"blocksums",
+			"Hasse",
+			"isdisjnt",
+			"relmetric",
+			"xgroup",
+			"xgrouping"
 		]
 	}
 }
