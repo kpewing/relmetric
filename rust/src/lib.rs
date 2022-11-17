@@ -243,19 +243,45 @@ impl Column {
         self.set_row_count(self.max_true_bit())
     }
 
-    /// Returns `true` iff `row_count` == 0 or `bit_field` is empty.
+    /// Returns the number of `true` bits in a [`Column`]
+    pub fn count_ones(&self) -> usize {
+        let mut res = 0_usize;
+        for i in 0..self.row_count {
+            if self.get_bit(i) {
+                res += 1
+            } else {
+                continue
+            }
+        }
+        res
+    }
+
+    /// Returns a collection of *child* [`Column`]s, *i.e.*, all possible [`Columns`]s with one of the *parent*'s `true` bits set to `false`
+    pub fn children(&self) -> Vec<Column> {
+        let mut res: Vec<Column> = vec![];
+        for i in 0..self.row_count {
+            if self.get_bit(i) {
+                let mut x = self.clone();
+                x.set_bit(i, false);
+                res.push(x);
+            } else {
+                continue
+            };
+        }
+        res
+    }
+
+    /// Returns `true` if `row_count` == 0 or `bit_field` is empty.
     pub fn is_empty(&self) -> bool {
         self.row_count == 0 || self.bit_field.is_empty()
     }
 
-    /// Returns `true` iff `row_count` > 0 and `bit_field` is all `0u8`.
+    /// Returns `true` if `row_count` > 0 and `bit_field` is all `0u8`.
     pub fn is_zero(&self) -> bool {
         self.row_count > 0 && self.bit_field.iter().all(|&x| x == 0)
     }
 
-    /// Returns whether two [`Column`]s are disjoint by rows.
-    ///
-    /// `true` unless `self` and `other` share a `true` bit in some row.
+    /// Returns `true` unless `self` and `other` share a `true` bit in some row.
     ///
     /// NB: Unlike the `lua` version, [`empty`](Column::is_empty()) and [`zero`](Column::is_zero()) [`Column`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](Column::is_empty()) and non-[`zero`](Column::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
     pub fn is_disjoint(&self, other: &Column) -> bool {
@@ -284,6 +310,24 @@ impl Column {
             }
             res
         }
+    }
+
+    /// Returns `true` if `other` has no `true` bits that are not `true` in `self`
+    ///
+    /// Viewing a [`Column`] as the generator of an [*abstract simplicial complex*](https://en.wikipedia.org/wiki/Abstract_simplicial_complex)("asc"), a *descendant* is one of the *faces* of that *asc* other than itself.
+    pub fn is_descendant_of(&self, other: &Column) -> bool {
+        let s = self.clone();
+        let o = other.clone();
+        s != o && s & o == *self
+    }
+
+    /// Returns `true` if `self` and `other` have the same `true` bits except for exactly one `true` bit
+    ///
+    /// Viewing a [`Column`] as the generator of an [*abstract simplicial complex*](https://en.wikipedia.org/wiki/Abstract_simplicial_complex)("asc"), a *child* is a *face* exactly one *dimension* smaller than the generator.
+    pub fn is_child_of(&self, other: &Column) -> bool {
+        let s = self.clone();
+        let o = other.clone();
+        s.is_descendant_of(&o) && (s ^ o).count_ones() == 1
     }
 }
 
@@ -2558,4 +2602,56 @@ mod tests {
             ex2_r2, ex2_r1, ex2_want, ex2_res
         );
     }
+
+    #[test]
+    fn col_is_descendant_of_works() {
+        let c0 = Column::new();
+        let c1 = Column::from(vec![0b01010101u8, 0b0u8]);
+        let c2 = Column::from(vec![0b01010001u8, 0b0u8]);
+        let c3 = Column::from(vec![0b00010000u8, 0b0u8]);
+        let c4 = Column::from(vec![0b01010001u8, 0b1u8]);
+        assert!(!c0.is_descendant_of(&c0));
+        assert!(!c0.is_descendant_of(&c1));
+        assert!(!c1.is_descendant_of(&c1));
+        assert!(!c1.is_descendant_of(&c2));
+        assert!(c2.is_descendant_of(&c1));
+        assert!(c3.is_descendant_of(&c1));
+        assert!(c2.is_descendant_of(&c4));
+        assert!(!c4.is_descendant_of(&c1));
+    }
+
+    #[test]
+    fn col_is_child_of_works() {
+        let c0 = Column::new();
+        let c1 = Column::from(vec![0b01010101u8, 0b0u8]);
+        let c2 = Column::from(vec![0b01010001u8, 0b0u8]);
+        let c3 = Column::from(vec![0b00010000u8, 0b0u8]);
+        let c4 = Column::from(vec![0b01010001u8, 0b1u8]);
+        assert!(!c0.is_child_of(&c0));
+        assert!(!c0.is_child_of(&c1));
+        assert!(!c1.is_child_of(&c1));
+        assert!(!c1.is_child_of(&c2));
+        assert!(c2.is_child_of(&c1));
+        assert!(!c3.is_child_of(&c1));
+        assert!(c2.is_child_of(&c4));
+        assert!(!c4.is_child_of(&c1));
+    }
+
+    #[test]
+    fn col_children_works() {
+        let c0 = Column::new();
+        let c4 = Column::from(vec![0b01010001u8, 0b1u8]);
+        assert!(c0.children().len() == 0);
+        assert!(c4.children().len() == 4);
+        assert!(c4.children().iter().all(|x| x.is_child_of(&c4)));
+    }
+
+    #[test]
+    fn col_count_works() {
+        let c0 = Column::new();
+        let c4 = Column::from(vec![0b01010001u8, 0b1u8]);
+        assert!(c0.count_ones() == 0);
+        assert!(c4.count_ones() == 4);
+    }
+
 }
