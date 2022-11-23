@@ -7,3 +7,5 @@ authors = ["Ken Ewing"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bit_field = "0.10.1"
+itertools = "0.10.5"

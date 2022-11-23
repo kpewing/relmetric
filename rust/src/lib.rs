@@ -74,6 +74,8 @@ use std::{
 
 use std::ops::Bound::{Excluded, Unbounded};
 
+mod dowker;
+
 /// Represents the relations one item in one set has with all items of the other set in a [`Relation`].
 ///
 /// Each is represented by a list of [`u8`] integers in big-endian order.
