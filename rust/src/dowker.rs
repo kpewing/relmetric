@@ -429,8 +429,24 @@ impl BitStore {
 
     /// Return the count of `true` bits in the [`BitStore`].
     pub fn count_ones(&self) -> usize {
-        self.get_bits(0..self.get_bit_length()).unwrap()
-            .iter().filter(|&x| *x).count()
+        // self.get_bits(0..self.get_bit_length()).unwrap().iter().filter(|&x| *x).count()
+        const OFFSET_MASK: [u8; 8] = [
+            0b11111111u8,
+            0b01111111u8,
+            0b00111111u8,
+            0b00011111u8,
+            0b00000111u8,
+            0b00001111u8,
+            0b00000011u8,
+            0b00000001u8,
+        ];
+        if self.bit_length > 0 {
+            let last_int = self.get_bit_length() / u8::BITS as usize;
+            let last_count = (self.bits[last_int] & OFFSET_MASK[(self.get_capacity() - self.bit_length) % u8::BITS as usize]).count_ones() as usize;
+            self.bits[..last_int].iter().fold(last_count, |acc, x| acc + x.count_ones() as usize)
+        } else {
+            0
+        }
     }
 
 }
@@ -651,10 +667,6 @@ impl fmt::UpperHex for BitStore {
 impl Face for BitStore {
     type Vertex = usize;
 
-    // fn new() -> Self {
-    //     Default::default()
-    // }
-
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
         println!("from_vertices vertices: {:?}", vertices);
         let max = match vertices.iter().max() {
@@ -686,6 +698,10 @@ impl Face for BitStore {
         self.get_bit(*vertex).unwrap_or(false)
     }
 
+    fn size(&self) -> usize {
+        self.count_ones()
+    }
+
     fn insert(&mut self, vertex: Self::Vertex) -> &mut Self {
         println!("insert({})", vertex);
         if vertex < self.get_bit_length() {
@@ -713,18 +729,6 @@ impl Face for BitStore {
             self
         }
     }
-
-    // fn is_parent_of(&self, face: &Self) -> bool {
-    //     self.size() == face.size() + 1 && self.is_ancestor_of(face)
-    // }
-
-    // fn is_child_of(&self, face: &Self) -> bool {
-    //     face.is_parent_of(self)
-    // }
-
-    // fn children(&self) -> dyn Iterator<Item = Self> {
-    //     self.vertices().map(|x| self.clone().remove(x)).collect::<Vec<Self>>()
-    // }
 
 }
 
