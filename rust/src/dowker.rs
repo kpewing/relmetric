@@ -6,6 +6,7 @@ This module creates an abstraction of the [`Dowker Complex`] and various support
 use core::fmt;
 use core::ops::{Bound, Range, RangeBounds};
 use core::iter::zip;
+use core::hash::Hash;
 use std::fmt::Write;
 
 use itertools::Itertools;
@@ -53,101 +54,192 @@ use itertools::Itertools;
 //     fn transpose(&self) -> Self;
 // }
 
-// /// A generic trait for an *abstract simplicial complex* of generically defined [`Face`]s.
-// ///
-// /// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a family of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the family is also in the family. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* `T` used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of the [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex.
-// ///
-// /// **NB**: We extend the common definition to permit an [*asc*](AbstractSimplicialComplex) to be [`empty`](AbstractSimplicialComplex::is_empty()).
-// pub trait AbstractSimplicialComplex where
-//     T: Clone + Hash + Eq
-// {
-//     type F: Face;
+/// A `newtype` to represent an *abstract simplicial complex* with `usize`s as [`vertices`](AbstractSimplicialComplex::Vertex)s.
+///
+/// For more see the trait [`AbstractSimplicialComplex`](trait::AbstractSimplicialComplex).
+///
+type ASC = Vec<BitStore>;
 
-//     /// Create a new, empty [`AbstractSimplicialComplex`]
-//     fn new() -> Self;
+impl AbstractSimplicialComplex for ASC {
+    type Face = BitStore;
 
-//     /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of *vertices* `T`, without duplication.
-//     ///
-//     /// Implementation *required*.
-//     fn from(faces: Vec<Self::F>) -> Self;
+    fn from_faces(faces: Vec<Self::Face>) -> Self {
+        faces
+    }
 
-//     /// Return a [`Vec`] of all the [`Face`]s in this [`AbstractSimplicialComplex`].
-//     ///
-//     /// Implementation *required*.
-//     fn faces(&self) -> Vec<Self::F>;
+    fn faces(&self) -> Vec<Self::Face> {
+        self.clone()
+    }
 
-//     /// Return a [`Vec`] of the *vertices* `T` actually used in this [`AbstractSimplicialComplex`], *i.e.*, its *vertex set*.
-//     ///
-//     /// **NB**: The *vertex set* might not itself be present in the [`AbstractSimplicialComplex`].
-//     ///
-//     /// *Optional* implementation: Default is union of vertices in generators().
-//     fn vertices(&self) -> Vec<T> {
-//         self.generators()
-//             .iter()
-//             .flat_map(|x| x.vertices())
-//             .unique()
-//             .collect_vec()
-//     }
+    fn insert_face (&mut self, face: Self::Face) -> &mut Self {
+        if self.contains(&face) {
+            self
+        } else if self.is_empty() {
+            // self.extend(vec![face].into_iter());
+            self.push(face);
+            self
+        } else {
+            // self.extend(vec![face].into_iter());
+            self.push(face);
+            let max_bit_length = self.faces().iter()
+                .max_by(
+                    |&a, &b|
+                    a.get_bit_length().cmp(&b.bit_length))
+                .unwrap()
+                .get_bit_length();
+            for idx in 0..self.len() {
+                if self[idx].bit_length < max_bit_length {
+                    self[idx].set_capacity(max_bit_length).unwrap();
+                    self[idx].set_bit_length(max_bit_length).unwrap();
+                }
+            }
+            self
+        }
+    }
 
-//     /// Return `true` if this [`AbstractSimplicialComplex`] contains the given [`Face`].
-//     ///
-//     /// *Optional* implementation. Default: find the given [`Face`] in the [`faces()`].
-//     fn contains(&self, face: Self::F) -> bool {
-//         match self.faces()
-//             .into_iter()
-//             .find(|&x| x.eq(face)) {
-//                 Some(_) => true,
-//                 None => false
-//             }
-//     }
+    fn remove_face (&mut self, face: Self::Face) -> &mut Self {
+        self.retain(|x| x != &face);
+        self
+        // if ! self.contains(&face) || self.is_empty() {
+        //     self
+        // } else {
+        //     self.extend(vec![face].into_iter());
+        //     let max_bit_length = self.faces().iter()
+        //         .max_by(
+        //             |&a, &b|
+        //             a.get_bit_length().cmp(&b.bit_length))
+        //         .unwrap()
+        //         .get_bit_length();
+        //     for idx in 0..self.len() {
+        //         if self[idx].bit_length < max_bit_length {
+        //             self[idx].set_capacity(max_bit_length).unwrap();
+        //             self[idx].set_bit_length(max_bit_length).unwrap();
+        //         }
+        //     }
+        //     self
+        // }
+    }
+}
 
-//     /// Insert the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
-//     ///
-//     /// *Optional* implementation. Default: extend this [`AbstractSimplicialComplex`]'s [`Face`]s with the given one without duplication.
-//     fn insert(&mut self, face: &Self::F) -> Self {
-//         let mut new = self.faces().push(face);
-//         new = new.iter().unique().collect_vec();
-//         AbstractSimplicialComplex::from()
-//     }
+/// A generic trait for an *abstract simplicial complex* of [`AbstractSimplicialComplex::Face`]s.
+///
+/// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a family of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the family is also in the family. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* `T` used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of the [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex.
+///
+/// **NB**: We extend the common definition to permit an [*asc*](AbstractSimplicialComplex) to be [`empty`](AbstractSimplicialComplex::is_empty()).
+pub trait AbstractSimplicialComplex {
+    type Face;
 
-//     /// Remove the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
-//     ///
-//     /// *Optional* implementation. Default: create a new [`AbstractSimplicialComplex`] without the given [`Face`].
-//     fn remove(&mut self, face: Self::F) -> Self {
-//         AbstractSimplicialComplex::from(self.faces().filter(|x| x != face))
-//     }
+    // /// Create a new, empty [`AbstractSimplicialComplex`]
+    // fn new() -> Self;
 
-//     /// Return the [`size`](Face::size()) of a [`maximal Face`](AbstractSimplicialComplex::is_maximal()) in this [`AbstractSimplicialComplex`].
-//     ///
-//     /// **NB**: This will *not* equal the count of items in the [*vertex set*](AbstractSimplicialComplex::vertices()) whenever there a multiple [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), since they by definition have different *vertices* from each other.
-//     ///
-//     /// *Optional* implementation. Default: size of the first generator.
-//     fn size(&self) -> usize {
-//         self.generators().take(1).size()
-//     }
+    /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
+    fn from_faces(faces: Vec<<Self as AbstractSimplicialComplex>::Face>) -> Self;
 
-//     /// Return whether the [`AbstractSimplicialComplex`] is empty.
-//     ///
-//     /// *Optional* implementation. Default: size == 0.
-//     fn is_empty(&self) -> bool {
-//         self.size() == 0
-//     }
+    /// Return a [`Vec`] of all the [`Face`](AbstractSimplicialComplex::Face) s in this [`AbstractSimplicialComplex`].
+    fn faces(&self) -> Vec<<Self as AbstractSimplicialComplex>::Face>;
 
-//     /// Return `true` if there is no other larger [`Face`] in this [`AbstractSimplicialComplex`].
-//     ///
-//     /// *Optional* implementation. Default: find it in generators()
-//     fn is_maximal(&self, face: Self::F) -> bool {
-//         self.generators().find(|x| x == face)
-//     }
+    /// Return a [`Vec`] of the [`Vertex`](Face::Vertex)s actually used in this [`AbstractSimplicialComplex`], *i.e.*, its *vertex set*.
+    ///
+    /// **NB**: The *vertex set* might not itself be present in the [`AbstractSimplicialComplex`].
+    ///
+    /// # Default Implementation
+    /// - Collects the unique [`Vertex`](Face::Vertex)s of the [`generator`](AbstractSimplicialComplex::generators()`]s.
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the trait [`Face`](trait::Face) and its associated type [`Vertex`](Face::Vertex)s to satisfy the traits `[Hash](core::hash::Hash) + [Eq](core::cmp::Eq) + [Clone](core::clone::Clone)`.
+    fn vertices(&self) -> Vec<<<Self as AbstractSimplicialComplex>::Face as Face>::Vertex>
+    where
+        Self::Face: Face,
+        <<Self as AbstractSimplicialComplex>::Face as Face>::Vertex: Hash + Eq + Clone,
+    {
+        self.generators()
+            .iter()
+            .flat_map(|x| x.vertices())
+            .unique()
+            .collect_vec()
+    }
 
-//     /// Return a [`Vec`] of the [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), the union of whose [`descendants`](Face::descendants()) *generates* this [`AbstractSimplicialComplex`].
-//     ///
-//     /// *Optional* implementation. Default: use itertools::max_set_by() on size().
-//     fn generators(&self) -> Vec<Self::F> {
-//         self.max_set_by(|a, b| a.size().cmp(b.size()))
-//     }
+    /// Return a [`Vec`] of the [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), the union of whose [`descendants`](Face::descendants()) *generates* this [`AbstractSimplicialComplex`].
+    ///
+    /// # Default Implementation
+    /// - Uses [`itertools::max_set_by()`] on [`size()`](Face::size()).
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the trait [`Face`](trait::Face).
+    fn generators(&self) -> Vec<Self::Face>
+    where
+        Self::Face: Face
+    {
+        self.faces().into_iter()
+            .max_set_by(
+                |a, b|
+                a.size().cmp(&b.size())
+            )
+    }
 
-// }
+    /// Return `true` if this [`AbstractSimplicialComplex`] contains the given [`Face`].
+    ///
+    /// # Default Implementation
+    /// - Finds the given [`Face`](AbstractSimplicialComplex::Face) in [`faces()`](AbstractSimplicialComplex::faces()).
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the trait [`PartialEq`]
+    fn contains(&self, face: &Self::Face) -> bool
+    where
+        Self::Face: PartialEq
+    {
+        match self.faces()
+            .into_iter()
+            .find(|x| x == face) {
+                Some(_) => true,
+                None => false
+            }
+    }
+
+    /// Insert the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
+    fn insert_face(&mut self, face: Self::Face) -> &mut Self;
+
+    /// Remove the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
+    fn remove_face(&mut self, face: Self::Face) -> &mut Self;
+
+    /// Return the [`size`](Face::size()) of a [`maximal Face`](AbstractSimplicialComplex::is_maximal()) in this [`AbstractSimplicialComplex`].
+    ///
+    /// **NB**: This will *not* equal the count of items in the [*vertex set*](AbstractSimplicialComplex::vertices()) whenever there a multiple [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), since they by definition have different [`Vertex`](Face::Vertex)s from each other.
+    ///
+    /// # Default Implementation
+    /// - Return the [`size()`](Face::size()) of the first [`generator`](AbstractSimplicialComplex::generators()).
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the trait [`Face`](trait::Face)
+    fn size(&self) -> usize
+    where
+        // <Self as AbstractSimplicialComplex>::Face: Face
+        Self::Face: Face
+    {
+        self.generators()[0].size()
+    }
+
+    /// Return whether the [`AbstractSimplicialComplex`] is empty.
+    ///
+    /// # Default Implementation
+    /// - Whether `self.size() == 0`.
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the trait [`Face`](trait::Face)
+    fn is_empty(&self) -> bool
+    where
+        // <Self as AbstractSimplicialComplex>::Face: Face
+        Self::Face: Face
+    {
+        self.size() == 0
+    }
+
+    /// Return `true` if there is no other larger [`Face`] in this [`AbstractSimplicialComplex`].
+    ///
+    /// # Default Implementation
+    /// - find it in generators()
+    /// - Requires the associated type [`Face`](AbstractSimplicialComplex::Face) to satisfy the traits `[`Face`](trait::Face) + PartialEq`.
+    fn is_maximal(&self, face: &Self::Face) -> bool
+    where
+        Self::Face: Face + PartialEq,
+    {
+        match self.generators().iter().find(|&x| x == face) {
+            Some(_) => true,
+            None => false
+        }
+    }
+
+}
 
 /// A generic trait for *face*s of an [`AbstractSimplicialComplex`] of *vertices* of the associated type [`Vertex`](Face::Vertex).
 ///
@@ -917,6 +1009,98 @@ mod tests {
         let mut want = [bs0, bs2, bs3, bs4, bs5, bs6, bs7];
         want.sort();
         assert_eq!(res, want);
+    }
+
+    #[test]
+    fn asc_from_and_faces_work() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc_vec = vec![bs1.clone(), bs2.clone(), bs3.clone()];
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert_eq!(asc1, asc_vec);
+        assert_eq!(asc1.faces(), asc_vec);
+    }
+
+    #[test]
+    fn asc_vertices_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert_eq!(asc1.vertices(), vec![2, 4, 8]);
+    }
+
+    #[test]
+    fn asc_contains_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs4 = BitStore::from_vertices(vec![2, 4]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert!(asc1.contains(&bs1));
+        assert!(!asc1.contains(&bs4));
+    }
+
+    #[test]
+    fn asc_insert_face_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone()]);
+        asc1.insert_face(bs3.clone());
+        assert!(asc1.contains(&bs3));
+    }
+
+    #[test]
+    fn asc_remove_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        asc1.remove_face(bs3.clone());
+        assert!(!asc1.contains(&bs3));
+    }
+
+    #[test]
+    fn asc_size_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert_eq!(asc1.size(), 3)
+    }
+
+    #[test]
+    fn asc_is_empty_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert!(!asc1.is_empty());
+        assert!(ASC::from_faces(vec![]).is_empty());
+    }
+
+    #[test]
+    fn asc_is_maximal_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        assert!(!asc1.is_maximal(&bs3), "not is_maximal({:b}) fails with generators {:?}", bs3, asc1.generators());
+        assert!(asc1.is_maximal(&bs1), "is_maximal({:b}) fails with generators {:?}", bs1, asc1.generators());
+    }
+
+    #[test]
+    fn asc_generators_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let res = asc1.generators().sort();
+        let want = vec![bs1.clone(), bs2.clone(), bs3.clone()].sort();
+        assert_eq!(res, want);
+        assert_eq!(ASC::from_faces(vec![]).generators(), vec![]);
     }
 
 }
