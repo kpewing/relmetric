@@ -134,10 +134,13 @@ pub trait AbstractSimplicialComplex {
     type Face;
 
     /// Create a new, empty [`AbstractSimplicialComplex`]
-    fn new() -> Self;
+    fn new() -> Self where Self: Sized;
 
     /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
-    fn from_faces(faces: Vec<<Self as AbstractSimplicialComplex>::Face>) -> Self;
+    ///
+    /// # Default Implementation
+    /// - Collect [`Face`](AbstractSimplicialComplex::Face)s not [`descended`](AbstractSimplicialComplex::is_descendant_of()) from any other.
+    fn from_faces(faces: Vec<Self::Face>) -> Self;
 
     /// Return a [`Vec`] of all the [`Face`](AbstractSimplicialComplex::Face) s in this [`AbstractSimplicialComplex`].
     fn faces(&self) -> Vec<<Self as AbstractSimplicialComplex>::Face>;
@@ -186,12 +189,7 @@ pub trait AbstractSimplicialComplex {
     where
         Self::Face: PartialEq
     {
-        match self.faces()
-            .into_iter()
-            .find(|x| x == face) {
-                Some(_) => true,
-                None => false
-            }
+        self.faces().into_iter().find(|x| x == face).is_some()
     }
 
     /// Insert the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
@@ -237,10 +235,7 @@ pub trait AbstractSimplicialComplex {
     where
         Self::Face: Face + PartialEq,
     {
-        match self.generators().iter().find(|&x| x == face) {
-            Some(_) => true,
-            None => false
-        }
+        self.generators().iter().find(|&x| x == face).is_some()
     }
 
 }
@@ -362,6 +357,24 @@ pub trait Face {
         for vs in self.vertices().into_iter().powerset() {
             if vs.len() != self.vertices().len() {
                 res.push(Self::from_vertices(vs))
+            }
+        }
+        res
+    }
+
+    /// Return the subset of the given [`Vec`] of [`Face`]s that are not descendants of any other in [`Face`]s in it.
+    ///
+    /// # Default Implementation
+    /// - Requires `Self` to have traits `Sized + Clone` and `Self::Vertex` to have trait `PartialEq`.
+    fn maximals(faces: &[Self]) -> Vec<Self>
+    where
+        Self: Sized + Clone,
+        Self::Vertex: PartialEq,
+    {
+        let mut res = vec![];
+        for f in faces.iter() {
+            if !res.iter().any(|g| (*f).is_descendant_of(g)) {
+                res.push((*f).clone())
             }
         }
         res
@@ -1013,6 +1026,17 @@ mod tests {
         let mut want = [bs0, bs2, bs3, bs4, bs5, bs6, bs7];
         want.sort();
         assert_eq!(res, want);
+    }
+
+    #[test]
+    fn face_bitstore_maximals_works() {
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs5 = BitStore::from_vertices(vec![2]);
+        let bs6 = BitStore::from_vertices(vec![4]);
+        let bs7 = BitStore::from_vertices(vec![8]);
+        let v1 = vec![bs2.clone(), bs5.clone(), bs6.clone(), bs7.clone()];
+        let want = vec![bs2.clone(), bs5.clone()];
+        assert_eq!(Face::maximals(&v1), want);
     }
 
     #[test]
