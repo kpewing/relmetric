@@ -63,6 +63,10 @@ type ASC = Vec<BitStore>;
 impl AbstractSimplicialComplex for ASC {
     type Face = BitStore;
 
+    fn new() -> Self {
+        Vec::<Self::Face>::new()
+    }
+
     fn from_faces(faces: Vec<Self::Face>) -> Self {
         faces
     }
@@ -129,8 +133,8 @@ impl AbstractSimplicialComplex for ASC {
 pub trait AbstractSimplicialComplex {
     type Face;
 
-    // /// Create a new, empty [`AbstractSimplicialComplex`]
-    // fn new() -> Self;
+    /// Create a new, empty [`AbstractSimplicialComplex`]
+    fn new() -> Self;
 
     /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
     fn from_faces(faces: Vec<<Self as AbstractSimplicialComplex>::Face>) -> Self;
