@@ -23,36 +23,201 @@ use itertools::Itertools;
 //     asc: A,
 // }
 
-// // /// A generic trait a *Dowker Complex*.
-// // ///
-// // pub trait Dowker<T> where
-// //     T: Face<U>
-// // {
-// //     type R: RelationTrait;
-// //     type A: AbstractSimplicialComplex<T>;
-// //     fn new() -> Self;
-// //     fn is_empty(&self) -> bool;
-// //     fn diff_weight(&self, face: T) -> usize;
-// //     fn tot_weight(&self, face: T) -> usize;
-// // }
-
-
-// /// A generic trait for a *Relation*.
+// /// A generic trait a *Dowker Complex*.
 // ///
-// pub trait RelationTrait {
-//     type C;
-//     type R;
+// pub trait Dowker<T> where
+//     T: Face<U>
+// {
+//     type R: RelationTrait;
+//     type A: AbstractSimplicialComplex<T>;
 //     fn new() -> Self;
 //     fn is_empty(&self) -> bool;
-//     fn zero(row_count: usize, col_count: usize) -> Self;
-//     fn get_row_count(&self) -> usize;
-//     fn get_col_count(&self) -> usize;
-//     fn get_row(&self, idx: usize) -> Self::R;
-//     fn get_col(&self, idx: usize) -> Self::C;
-//     fn set_row(&mut self, idx: usize, row: Self::R);
-//     fn set_col(&mut self, idx: usize, col: Self::C);
-//     fn transpose(&self) -> Self;
+//     fn diff_weight(&self, face: T) -> usize;
+//     fn tot_weight(&self, face: T) -> usize;
 // }
+#[derive(Debug, Default, PartialEq, Clone, Copy)]
+pub enum Axis {
+    Column,
+    #[default] Row,
+}
+
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct BRel {
+    major_axis: Axis,
+    contents: Vec<BitStore>
+}
+
+impl BRel {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn get_axis(&self) -> Axis {
+        self.major_axis
+    }
+
+    pub fn get_contents(&self) -> Vec<BitStore> {
+        self.contents.clone()
+    }
+}
+
+impl RelationTrait for BRel {
+    type MajorAxis = Axis;
+
+    fn new() -> Self {
+        Self::new()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.contents.iter().all(|x| x.count_ones() == 0)
+    }
+
+    fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self {
+        let (bit_length, vec_length) = match major_axis {
+            Axis::Row => (row_count, col_count),
+            Axis::Column => (col_count, row_count),
+        };
+        BRel {
+            major_axis,
+            contents: vec![BitStore::zero(bit_length); vec_length],
+        }
+    }
+
+    fn get_major_axis(&self) -> Self::MajorAxis {
+        self.major_axis
+    }
+
+    fn set_major_axis(&mut self, &axis: &Self::MajorAxis) -> &mut Self {
+        self.major_axis = axis;
+        self
+    }
+
+    fn get_row_count(&self) -> usize {
+        match self.major_axis {
+            Axis::Row => self.contents.len(),
+            Axis::Column =>
+                if self.contents.len() == 0 {
+                    0
+                } else {
+                    self.contents[0].get_bit_length()
+                },
+        }
+    }
+
+    fn get_col_count(&self) -> usize {
+        match self.major_axis {
+            Axis::Column => self.contents.len(),
+            Axis::Row =>
+                if self.contents.len() == 0 {
+                    0
+                } else {
+                    self.contents[0].get_bit_length()
+                },
+        }
+    }
+
+    fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str> {
+        match self.major_axis {
+            Axis::Column => {
+                let mut bits = vec![];
+                for c in self.contents[..].iter() {
+                        bits.push(c.get_bit(idx)?)
+                    }
+                Ok(bits)
+                },
+            Axis::Row => Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?),
+        }
+    }
+
+    fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str> {
+        match self.major_axis {
+            Axis::Column => Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?),
+            Axis::Row => {
+                let mut bits = vec![];
+                for c in self.contents[..].iter() {
+                        bits.push(c.get_bit(idx)?)
+                    }
+                Ok(bits)
+                },
+        }
+    }
+
+    fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str> {
+        match self.major_axis {
+            Axis::Column => {
+                for i in 0..row.len() {
+                    self.contents[i].set_bit(idx, row[i])?;
+                }
+                Ok(self)
+            },
+            Axis::Row => {
+                self.contents[idx] = BitStore::from(row);
+                BitStore::normalize(&self.contents);
+                Ok(self)
+            },
+        }
+    }
+
+    fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str> {
+        match self.major_axis {
+            Axis::Column => {
+                self.contents[idx] = BitStore::from(col);
+                BitStore::normalize(&self.contents);
+                Ok(self)
+            },
+            Axis::Row => {
+                for i in 0..col.len() {
+                    self.contents[i].set_bit(idx, col[i])?;
+                }
+                Ok(self)
+            },
+        }
+    }
+
+    fn transpose(&mut self) -> Result<&mut Self, &'static str> {
+        // *self.contents = BitStore::normalize(self.contents);
+        // for i in 0..self.contents.len() {
+        //     for j in 0..self.contents[0].get_bit_length() {
+        //         // SAFETY:
+        //         let hold = self.contents[i].get_bit(j)?;
+        //         let ji_bit = self.contents[j].get_bit(i)?;
+        //         self.contents[i].set_bit(j, ji_bit)?;
+        //         self.contents[j].set_bit(i, hold)?;
+        //     }
+        // }
+        match self.get_major_axis() {
+            Axis::Column => self.set_major_axis(&Axis::Row),
+            Axis::Row => self.set_major_axis(&Axis::Column),
+        };
+        Ok(self)
+    }
+}
+
+impl From<Vec<BitStore>> for BRel {
+    fn from(bitstores: Vec<BitStore>) -> Self {
+        BRel {
+            major_axis: BRel::default().major_axis,
+            contents: BitStore::normalize(&bitstores) }
+    }
+}
+
+/// A generic trait for a *Relation*.
+///
+pub trait RelationTrait {
+    type MajorAxis;
+    fn new() -> Self;
+    fn is_empty(&self) -> bool;
+    fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
+    fn get_major_axis(&self) -> Self::MajorAxis;
+    fn set_major_axis(&mut self, axis: &Self::MajorAxis) -> &mut Self;
+    fn transpose(&mut self) -> Result<&mut Self, &'static str>;
+    fn get_row_count(&self) -> usize;
+    fn get_col_count(&self) -> usize;
+    fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+    fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str>;
+    fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+    fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
+}
 
 /// A `newtype` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on the [`vertex set`](AbstractSimplicialComplex::Vertex) of `usize`s.
 ///
@@ -390,7 +555,7 @@ pub trait Face {
 ///
 /// Maps [`bit_field::BitField`] over a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to avoid out-of-bounds panics.
 //
-// [ ] - TODO: consider implementing [`SliceIndex`](https://doc.rust-lang.org/std/slice/trait.SliceIndex.html)
+// [ ] - TODO: consider implementing [`SliceIndex`](https://doc.rust-lang.org/std/slice/trait.SliceIndex.html) to access bits
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BitStore {
     /// Count of bits represented.
@@ -404,6 +569,14 @@ impl BitStore {
     /// Create a new, default [`BitStore`], which is [`empty`](is_empty()).
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Create a [`BitStore`] of given `bit_length` with bits all `false` (*i.e.*, "zero").
+    pub fn zero(bit_length: usize) -> Self {
+        BitStore {
+            bit_length,
+            bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
+        }
     }
 
     /// Return a validated [`Range`] into the [`BitStore`] or an "out of bounds" `Err`.
@@ -601,6 +774,16 @@ impl BitStore {
         res
     }
 
+}
+
+impl From<Vec<bool>> for BitStore {
+    fn from(bools: Vec<bool>) -> Self {
+        let mut res = BitStore::new();
+        res.set_capacity(bools.len()).unwrap();
+        res.set_bit_length(bools.len()).unwrap();
+        res.set_bits(0..bools.len(), bools).unwrap();
+        res
+    }
 }
 
 // [ ] - TODO: use a macro to generate for the various numbers
@@ -890,6 +1073,8 @@ impl Face for BitStore {
 
 // Unit Tests
 mod tests {
+    // use std::ptr::eq;
+
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
@@ -898,6 +1083,11 @@ mod tests {
     #[test]
     fn bitstore_new_works() {
         assert_eq!(BitStore::new(), BitStore { bit_length: 0, bits: vec![] });
+    }
+
+    #[test]
+    fn bitstore_zero_works() {
+        assert_eq!(BitStore::zero(9), BitStore { bit_length: 9, bits: vec![0u8; 2]});
     }
 
     #[test]
@@ -1205,6 +1395,126 @@ mod tests {
         let want = vec![bs1.clone(), bs2.clone(), bs3.clone()].sort();
         assert_eq!(res, want);
         assert_eq!(ASC::from_faces(vec![]).generators(), vec![]);
+    }
+
+    #[test]
+    fn brel_new_works() {
+        let br = BRel::new();
+        assert_eq!(br, BRel { major_axis: Axis::Row, contents: vec![]});
+        assert_eq!(br.get_axis(), BRel::default().get_axis());
+        assert_eq!(br.get_contents(), BRel::default().get_contents());
+    }
+
+    #[test]
+    fn reltrait_brel_new_and_is_empty_work() {
+        let r1 = BRel::new();
+        assert_eq!(r1, BRel { major_axis: Axis::Row, contents: vec![]});
+        assert!(r1.is_empty());
+    }
+
+    #[test]
+    fn reltrait_brel_from_bitstores_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bsvec = vec![bs1, bs2, bs3];
+        let r1 = BRel::from(bsvec.clone());
+        assert_eq!(r1, BRel { major_axis: Axis::Row, contents: bsvec});
+    }
+
+    #[test]
+    fn reltrait_brel_zero_works() {
+        assert_eq!(BRel::zero(2, 9, Axis::Column), BRel { major_axis: Axis::Column, contents: vec![BitStore::zero(9); 2]});
+    }
+
+    #[test]
+    fn reltrait_brel_get_major_axis_works() {
+        assert_eq!(BRel::new().major_axis, BRel::default().major_axis);
+    }
+
+    #[test]
+    fn reltrait_brel_set_major_axis_works() {
+        let mut r1 = BRel::new();
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.get_major_axis(), Axis::Column);
+    }
+
+    #[test]
+    fn reltrait_brel_get_row_count_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let r1 = BRel::from(vec![bs2, bs1, bs3]);
+        assert_eq!(r1.get_row_count(), 3);
+        assert_eq!(BRel::new().get_row_count(), 0);
+    }
+
+    #[test]
+    fn reltrait_brel_get_col_count_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs2, bs1, bs3]);
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.get_col_count(), 3);
+        assert_eq!(BRel::new().get_col_count(), 0);
+    }
+
+    #[test]
+    fn reltrait_brel_get_row_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
+        assert_eq!(r1.get_row(1), bs1.get_bits(0..bs1.get_bit_length()));
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.get_row(0), Ok(vec![false, false, false]));
+    }
+
+    #[test]
+    fn reltrait_brel_set_row_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
+        assert_eq!(r1.set_row(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_row(2), bs1.get_bits(0..bs1.get_bit_length()));
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.set_row(0, vec![true, true, true]).unwrap().get_row(0), Ok(vec![true, true, true]));
+    }
+
+    #[test]
+    fn reltrait_brel_get_col_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
+        assert_eq!(r1.get_col(0), Ok(vec![false, false, false]));
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.get_col(1), bs1.get_bits(0..bs1.get_bit_length()));
+    }
+
+    #[test]
+    fn reltrait_brel_set_col_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
+        assert_eq!(r1.set_col(0, vec![true, true, true]).unwrap().get_col(0), Ok(vec![true, true, true]));
+        r1.set_major_axis(&Axis::Column);
+        assert_eq!(r1.set_col(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_col(2), bs1.get_bits(0..bs1.get_bit_length()));
+    }
+
+    #[test]
+    fn reltrait_brel_transpose_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let mut r1 = BRel::from(vec![bs1, bs2, bs3]);
+        let bs1_t = BitStore::from_vertices(vec![2, 4, 2]);
+        let bs2_t = BitStore::from_vertices(vec![4, 8, 8]);
+        let bs3_t = BitStore::from_vertices(vec![8]);
+        let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t]);
+        assert_eq!(r1.transpose(), Ok(&mut r1_t));
     }
 
 }
