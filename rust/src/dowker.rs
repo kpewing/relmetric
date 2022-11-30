@@ -73,7 +73,7 @@ impl RelationTrait for BRel {
     }
 
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self {
-        let (bit_length, vec_length) = match major_axis {
+        let (vec_length, bit_length) = match major_axis {
             Axis::Row => (row_count, col_count),
             Axis::Column => (col_count, row_count),
         };
@@ -175,20 +175,19 @@ impl RelationTrait for BRel {
     }
 
     fn transpose(&mut self) -> Result<&mut Self, &'static str> {
-        // *self.contents = BitStore::normalize(self.contents);
-        // for i in 0..self.contents.len() {
-        //     for j in 0..self.contents[0].get_bit_length() {
-        //         // SAFETY:
-        //         let hold = self.contents[i].get_bit(j)?;
-        //         let ji_bit = self.contents[j].get_bit(i)?;
-        //         self.contents[i].set_bit(j, ji_bit)?;
-        //         self.contents[j].set_bit(i, hold)?;
-        //     }
-        // }
-        match self.get_major_axis() {
-            Axis::Column => self.set_major_axis(&Axis::Row),
-            Axis::Row => self.set_major_axis(&Axis::Column),
+        let mut new = Self::zero(self.get_col_count(), self.get_row_count(), self.major_axis);
+        println!("transpose({:?})\n new zero {:?}", self, &new);
+        match self.major_axis {
+            Axis::Row => for r in 0..self.get_row_count() {
+                println!("- Row {} of 0..{}: set_col({}, get_row({})): {:b}", r, self.get_row_count(), r, r, self.contents[r]);
+                new.set_col(r, self.get_row(self.get_row_count() - r - 1)?)?;
+            }
+            Axis::Column => for c in 0..self.get_col_count() {
+                println!("- Col {} of 0..{}: set_col({}, get_row({}))", c, self.get_col_count(), c, c);
+                new.set_row(c, self.get_col(self.get_col_count() - c - 1)?)?;
+            }
         };
+        *self = new;
         Ok(self)
     }
 }
@@ -198,6 +197,31 @@ impl From<Vec<BitStore>> for BRel {
         BRel {
             major_axis: BRel::default().major_axis,
             contents: BitStore::normalize(&bitstores) }
+    }
+}
+
+impl fmt::Binary for BRel {
+    /// Show a big-endian binary representation of the [`ASC`] on one line.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = String::from("[");
+        if !self.is_empty() {
+            match self.major_axis {
+                Axis::Column => {
+                    s.push_str(&format!("{:b}", BitStore::from(self.get_col(0).unwrap())));
+                    for c in 1..self.get_col_count() {
+                        s.push_str(&format!("\n {:b}", BitStore::from(self.get_col(c).unwrap())));
+                    }
+                },
+                Axis::Row => {
+                    s.push_str(&format!("{:b}", self.contents[0]));
+                    for r in 1..self.get_row_count() {
+                        s.push_str(&format!("\n {:b}", self.contents[r]));
+                    }
+                }
+            };
+        }
+        s.push_str("]");
+        write!(f, "{s}")
     }
 }
 
@@ -591,12 +615,12 @@ impl BitStore {
             Bound::Included(&value) => value + 1,
             Bound::Unbounded => self.bit_length,
         };
-        println!("valid_range({}..{})", start, end);
+        // println!("valid_range({}..{})", start, end);
         if start <= end && start <= self.bit_length && end <= self.bit_length {
-            println!("valid_range => Ok(Range {}, {})", start, end);
+            // println!("valid_range => Ok(Range {}, {})", start, end);
             Ok(Range { start, end })
         } else {
-            println!("valid_range => Err with start:{} end:{} bit_length:{}", start, end, self.bit_length);
+            // println!("valid_range => Err with start:{} end:{} bit_length:{}", start, end, self.bit_length);
             Err("out of bounds for BitStore")
         }
     }
@@ -622,13 +646,10 @@ impl BitStore {
     /// assert!(bs.set_bit_length(10).is_ok());
     ///
     pub fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
-        print!("set_bit_length {} to {} => ", self.bit_length, value);
         if value == self.bit_length {
-            println!("{}", self.bit_length);
             Ok(self)
         } else if value > self.bit_length  && value < self.get_capacity() {
             self.bit_length = value;
-            println!("{}", self.bit_length);
             Ok(self)
         } else {
             Err("out of bounds for BitStore")
@@ -647,16 +668,13 @@ impl BitStore {
     ///  See *Example* at [`set_bit_length()`](BitStore::set_bit_length()).
     pub fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str> {
         let cap = self.get_capacity();
-        print!("set_capacity {} to {}", cap, value);
         if value < self.bit_length {
             Err("can't reduce BitStore capacity below bit_length")
         } else if value > cap {
             self.bits.extend(vec![0u8; 1 + (value - cap) / u8::BITS as usize]);
-            println!(" by {} bytes => {}", 1 + (value - cap) / u8::BITS as usize, self.get_capacity());
             Ok(self)
         } else if value < cap {
-            println!(" within => {}", self.get_capacity());
-            self.bits = self.bits[0..(value / u8::BITS as usize)].to_vec();
+            self.bits = self.bits[0..(1 + value / u8::BITS as usize)].to_vec();
             Ok(self)
         } else {
             Ok(self)
@@ -745,7 +763,8 @@ impl BitStore {
             0b00000001u8,
         ];
         if self.bit_length > 0 {
-            let last_int = self.get_bit_length() / u8::BITS as usize;
+            let last_int = (self.get_bit_length() - 1) / u8::BITS as usize;
+            // println!("count_ones({:?}) bit_length:{} last_int:{}", self, self.get_bit_length(), &last_int);
             let last_count = (self.bits[last_int] & OFFSET_MASK[(self.get_capacity() - self.bit_length) % u8::BITS as usize]).count_ones() as usize;
             self.bits[..last_int].iter().fold(last_count, |acc, x| acc + x.count_ones() as usize)
         } else {
@@ -766,7 +785,9 @@ impl BitStore {
                 .get_bit_length();
             for idx in 0..res.len() {
                 if res[idx].bit_length < max_bit_length {
+                    println!("res[{}] capacity:{} bit_length:{} max_bit_length:{}", idx, res[idx].get_capacity(), res[idx].get_bit_length(), max_bit_length);
                     res[idx].set_capacity(max_bit_length).unwrap();
+                    println!(" new capacity:{}", res[idx].get_capacity());
                     res[idx].set_bit_length(max_bit_length).unwrap();
                 }
             }
@@ -1007,25 +1028,20 @@ impl Face for BitStore {
     }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
-        println!("from_vertices vertices: {:?}", vertices);
         let max = match vertices.iter().max() {
             None => return Self::new(),
             Some(n) => n
         };
         let mut res = Self::new();
         res.bit_length = *max + 1;
-        println!("from_vertices res.bit_length:{}", res.bit_length);
         res.bits = vec![0u8; 1 + *max / u8::BITS as usize];
-        println!("from_vertices initial res.bits:{:?}", res.bits);
         for v in vertices {
             res.set_bit(v, true).unwrap();
         }
-        println!("from_vertices final res.bits:{:?}", res.bits);
         res
     }
 
     fn vertices(&self) -> Vec<Self::Vertex> {
-        println!("vertices for {:?}", self);
         self.get_bits(0..self.bit_length).unwrap()
             .iter()
             .enumerate()
@@ -1042,7 +1058,6 @@ impl Face for BitStore {
     }
 
     fn insert(&mut self, vertex: Self::Vertex) -> &mut Self {
-        println!("insert({})", vertex);
         if vertex < self.get_bit_length() {
             // SAFETY: vertex < bit_length => set_bit() can't fail.
             self.set_bit(vertex, true).unwrap()
@@ -1053,9 +1068,7 @@ impl Face for BitStore {
             if vertex >= self.get_capacity() {
                 self.set_capacity(vertex + 1).unwrap();
             }
-            println!("insert({}) capacity:{}", vertex, self.get_capacity());
             self.set_bit_length(vertex + 1).unwrap();
-            println!("insert({}) capacity:{} bit_length:{}", vertex, self.get_capacity(), self.get_bit_length());
             self.set_bit(vertex, true).unwrap()
         }
     }
@@ -1091,7 +1104,12 @@ mod tests {
     }
 
     #[test]
-    fn bitstore_from_works() {
+    fn bitstore_from_vecbool_works() {
+        assert_eq!(BitStore::from(vec![false, false, false, false, false, false, false, true, true]), BitStore { bit_length: 9, bits: vec![0b00000001u8, 0b1u8]});
+    }
+
+    #[test]
+    fn bitstore_from_vecint_works() {
         assert_eq!(
             BitStore::from(vec![0xff_usize]),
             BitStore { bit_length: 64, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 255] }
@@ -1132,6 +1150,7 @@ mod tests {
         assert_eq!(bs.get_capacity(), 24);
         assert_eq!(bs.get_bit_length(), 15);
 
+        assert_eq!(BitStore::from(vec![0b01010101u8]).get_bits(0..8), Ok(vec![false, true, false, true, false, true, false, true]));
         assert_eq!(bs.get_bits(0..15), Ok(vec![false, false, true, true, false, false, false, true, false, true, false, false, true, false, true]), "for {:?}", bs);
         assert_eq!(bs.get_bit(2), Ok(true));
         assert_eq!(bs.get_bits(2..4), Ok(vec![true, true]));
@@ -1148,6 +1167,12 @@ mod tests {
     fn bitstore_count_ones_works() {
         let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         assert_eq!(bs.count_ones(), 6);
+        assert_eq!(BitStore::from(vec![0b01010101u8]).count_ones(), 4, "count_ones for {:?}", BitStore::from(vec![0b01010101u8]));
+    }
+
+    #[test]
+    fn bitstore_binary_works() {
+        assert_eq!(format!("{:b}", BitStore::from(vec![0b01010101u8])), "[01010101]".to_string());
     }
 
     #[test]
@@ -1406,6 +1431,11 @@ mod tests {
     }
 
     #[test]
+    fn brel_binary_works() {
+        assert_eq!(format!("{:b}", BRel::from(vec![BitStore::from(vec![0b01010101u8])])), "[\n [01010101]\n]".to_string());
+    }
+
+    #[test]
     fn reltrait_brel_new_and_is_empty_work() {
         let r1 = BRel::new();
         assert_eq!(r1, BRel { major_axis: Axis::Row, contents: vec![]});
@@ -1424,7 +1454,7 @@ mod tests {
 
     #[test]
     fn reltrait_brel_zero_works() {
-        assert_eq!(BRel::zero(2, 9, Axis::Column), BRel { major_axis: Axis::Column, contents: vec![BitStore::zero(9); 2]});
+        assert_eq!(BRel::zero(2, 9, Axis::Column), BRel { major_axis: Axis::Column, contents: vec![BitStore::zero(2); 9]});
     }
 
     #[test]
@@ -1510,11 +1540,25 @@ mod tests {
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs1, bs2, bs3]);
-        let bs1_t = BitStore::from_vertices(vec![2, 4, 2]);
-        let bs2_t = BitStore::from_vertices(vec![4, 8, 8]);
-        let bs3_t = BitStore::from_vertices(vec![8]);
-        let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t]);
-        assert_eq!(r1.transpose(), Ok(&mut r1_t));
+        let bs1_t = BitStore::from_vertices(vec![]);
+        let bs2_t = BitStore::from_vertices(vec![]);
+        let bs3_t = BitStore::from_vertices(vec![0, 2]);
+        let bs4_t = BitStore::from_vertices(vec![]);
+        let bs5_t = BitStore::from_vertices(vec![0, 1]);
+        let bs6_t = BitStore::from_vertices(vec![]);
+        let bs7_t = BitStore::from_vertices(vec![]);
+        let bs8_t = BitStore::from_vertices(vec![]);
+        let bs9_t = BitStore::from_vertices(vec![0, 1, 2]);
+        let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
+        let res = r1.transpose().unwrap();
+        assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9,3,Axis::Row), "res:{:b}", res);
+        assert_eq!(res, &mut r1_t);
+
+        res.set_major_axis(&Axis::Column);
+        r1_t.set_major_axis(&Axis::Column);
+        println!("res flipped:\n{:b}", res);
+        println!("r1_t flipped:\n{:b}", r1_t);
+        assert_eq!(res, &r1_t);
     }
 
 }
