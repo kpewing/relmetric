@@ -1,47 +1,104 @@
 /*! # A Module Representing Dowker Complexes
 
-This module creates an abstraction of the [`Dowker Complex`] and various supporting types and traits, including the [`Abstract Simplicial Complex`], the [`Face`], and the underlying [`BitStore`] trait and default [`BitStore`] struct.
+This module creates an abstraction of the [`Dowker Complex`] and various supporting types and traits, including the [`Abstract Simplicial Complex`](AbstractSimplicialComplex), the [`Face`], and the underlying [`BitStore`] trait and default [`BitStore`] struct.
 */
 
 use core::fmt;
 use core::ops::{Bound, Range, RangeBounds};
 use core::iter::zip;
 use core::hash::Hash;
-use std::fmt::Write;
+use std::collections::BTreeMap;
+use std::fmt::{Write, Debug};
 
 use itertools::Itertools;
-// use bit_field::BitField;
 
-// /// A *Dowker Complex* on a [`Relation`].
-// ///
-// /// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
-// pub struct MyDowker<'a, R, A> where
-//     R: RelationTrait,
-//     A: AbstractSimplicialComplex<bool>
-// {
-//     relation: &'a R,
-//     asc: A,
-// }
 
-// /// A generic trait a *Dowker Complex*.
-// ///
-// pub trait Dowker<T> where
-//     T: Face<U>
-// {
-//     type R: RelationTrait;
-//     type A: AbstractSimplicialComplex<T>;
-//     fn new() -> Self;
-//     fn is_empty(&self) -> bool;
-//     fn diff_weight(&self, face: T) -> usize;
-//     fn tot_weight(&self, face: T) -> usize;
-// }
-#[derive(Debug, Default, PartialEq, Clone, Copy)]
+/// A `struct` to implement *Dowker Complexes*.
+///
+/// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MyDowker {
+    generators: ASC,
+    weights: BTreeMap<<ASC as AbstractSimplicialComplex>::Face, usize>,
+}
+
+impl MyDowker {
+    /// Create a new [`MyDowker`] from a [`Brel`] representing a *relation*.
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
+impl From<&BRel> for MyDowker
+where
+    BRel: RelationTrait,
+{
+    fn from(relation: &BRel) -> Self {
+        let mut res = MyDowker::new();
+        for f in &relation.contents {
+            println!("MyDowker::from<BRel> f:{:b} = {:b}", f, f);
+            res.generators.insert_face(f.clone());
+            res.weights.entry(f.clone())
+                .and_modify(|diff_weight| *diff_weight += 1)
+                .or_insert(1);
+        }
+        res
+    }
+}
+
+impl Dowker for MyDowker {
+    type A = ASC;
+    type F = BitStore;
+
+    // fn new() -> Self {
+    //     todo!()
+    // }
+
+    fn is_empty(&self) -> bool {
+        self.generators.is_empty()
+    }
+
+    fn diff_weight(&self, face: Self::F) -> usize {
+        *self.weights.get(&face).unwrap_or(&0)
+    }
+
+    fn tot_weight(&self, face: Self::F) -> usize {
+        Face::closure(&vec![face][..]).iter().fold(
+            0,
+            |mut acc, x| {
+                acc += self.weights.get(x).unwrap_or(&0);
+                acc
+            }
+        )
+    }
+
+}
+
+/// A generic trait for a *Dowker Complex*.
+pub trait Dowker {
+    type A: AbstractSimplicialComplex;
+    type F: Face;
+
+    // fn new() -> Self;
+
+    /// Returns `true` if this [`Dowker`] is empty.
+    fn is_empty(&self) -> bool;
+
+    /// Returns the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *relation*.
+    fn diff_weight(&self, face: Self::F) -> usize;
+
+    /// Returns the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`]s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
+    fn tot_weight(&self, face: Self::F) -> usize;
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum Axis {
     Column,
     #[default] Row,
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+/// A `struct` to implement *Relation*s.
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct BRel {
     major_axis: Axis,
     contents: Vec<BitStore>
@@ -96,7 +153,7 @@ impl RelationTrait for BRel {
         match self.major_axis {
             Axis::Row => self.contents.len(),
             Axis::Column =>
-                if self.contents.len() == 0 {
+                if self.contents.is_empty() {
                     0
                 } else {
                     self.contents[0].get_bit_length()
@@ -108,7 +165,7 @@ impl RelationTrait for BRel {
         match self.major_axis {
             Axis::Column => self.contents.len(),
             Axis::Row =>
-                if self.contents.len() == 0 {
+                if self.contents.is_empty() {
                     0
                 } else {
                     self.contents[0].get_bit_length()
@@ -145,8 +202,8 @@ impl RelationTrait for BRel {
     fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str> {
         match self.major_axis {
             Axis::Column => {
-                for i in 0..row.len() {
-                    self.contents[i].set_bit(idx, row[i])?;
+                for (i, &v) in row.iter().enumerate() {
+                    self.contents[i].set_bit(idx, v)?;
                 }
                 Ok(self)
             },
@@ -166,30 +223,30 @@ impl RelationTrait for BRel {
                 Ok(self)
             },
             Axis::Row => {
-                for i in 0..col.len() {
-                    self.contents[i].set_bit(idx, col[i])?;
+                for (i, &v) in col.iter().enumerate() {
+                    self.contents[i].set_bit(idx, v)?;
                 }
                 Ok(self)
             },
         }
     }
 
-    fn transpose(&mut self) -> Result<&mut Self, &'static str> {
-        let mut new = Self::zero(self.get_col_count(), self.get_row_count(), self.major_axis);
-        println!("transpose({:?})\n new zero {:?}", self, &new);
-        match self.major_axis {
-            Axis::Row => for r in 0..self.get_row_count() {
-                println!("- Row {} of 0..{}: set_col({}, get_row({})): {:b}", r, self.get_row_count(), r, r, self.contents[r]);
-                new.set_col(r, self.get_row(self.get_row_count() - r - 1)?)?;
-            }
-            Axis::Column => for c in 0..self.get_col_count() {
-                println!("- Col {} of 0..{}: set_col({}, get_row({}))", c, self.get_col_count(), c, c);
-                new.set_row(c, self.get_col(self.get_col_count() - c - 1)?)?;
-            }
-        };
-        *self = new;
-        Ok(self)
-    }
+    // DOESN'T WORK
+    // fn transpose(&mut self) -> Result<&mut Self, &'static str> {
+    //     println!("\ntranspose self:\n{:b}\n", self);
+    //     let mut new = Self::zero(self.get_col_count(), self.get_row_count(), self.major_axis);
+    //     match self.major_axis {
+    //         Axis::Row => for r in 0..self.get_row_count() {
+    //             new.set_col(r, self.get_row(self.get_row_count() - r - 1)?)?;
+    //         }
+    //         Axis::Column => for c in 0..self.get_col_count() {
+    //             new.set_row(c, self.get_col(self.get_col_count() - c - 1)?)?;
+    //         }
+    //     };
+    //     *self = new;
+    //     println!("\n ->\n{:b}\n", self);
+    //     Ok(self)
+    // }
 }
 
 impl From<Vec<BitStore>> for BRel {
@@ -207,26 +264,25 @@ impl fmt::Binary for BRel {
         if !self.is_empty() {
             match self.major_axis {
                 Axis::Column => {
-                    s.push_str(&format!("{:b}", BitStore::from(self.get_col(0).unwrap())));
+                    write!(s, "{:b}", BitStore::from(self.get_col(0).unwrap())).unwrap();
                     for c in 1..self.get_col_count() {
-                        s.push_str(&format!("\n {:b}", BitStore::from(self.get_col(c).unwrap())));
+                        write!(s, "\n {:b}", BitStore::from(self.get_col(c).unwrap())).unwrap();
                     }
                 },
                 Axis::Row => {
-                    s.push_str(&format!("{:b}", self.contents[0]));
+                    write!(s, "{:b}", self.contents[0]).unwrap();
                     for r in 1..self.get_row_count() {
-                        s.push_str(&format!("\n {:b}", self.contents[r]));
+                        write!(s, "\n {:b}", self.contents[r]).unwrap();
                     }
                 }
             };
         }
-        s.push_str("]");
+        s.push(']');
         write!(f, "{s}")
     }
 }
 
 /// A generic trait for a *Relation*.
-///
 pub trait RelationTrait {
     type MajorAxis;
     fn new() -> Self;
@@ -234,7 +290,7 @@ pub trait RelationTrait {
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
     fn get_major_axis(&self) -> Self::MajorAxis;
     fn set_major_axis(&mut self, axis: &Self::MajorAxis) -> &mut Self;
-    fn transpose(&mut self) -> Result<&mut Self, &'static str>;
+    // fn transpose(&mut self) -> Result<&mut Self, &'static str>;
     fn get_row_count(&self) -> usize;
     fn get_col_count(&self) -> usize;
     fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
@@ -265,6 +321,7 @@ impl AbstractSimplicialComplex for ASC {
     }
 
     fn insert_face (&mut self, face: Self::Face) -> &mut Self {
+        println!("insert_face self:{:?} face:{:b} contains:{}", self, face, self.contains(&face));
         if self.contains(&face) {
             self
         } else {
@@ -328,7 +385,7 @@ pub trait AbstractSimplicialComplex {
     ///
     /// # Default Implementation
     /// - Collects the unique [`Vertex`](Face::Vertex)s of the [`generators()`](AbstractSimplicialComplex::generators()`].
-    /// - Requires the associated type `Face` to satisfy the trait `Face` and its associated type `Face::Vertex` to satisfy the traits `Hash + Eq + Clone`.
+    /// - Requires the associated type `Face` to have trait `Face` and its associated type `Face::Vertex` to have traits `Hash + Eq + Clone`.
     fn vertices(&self) -> Vec<<<Self as AbstractSimplicialComplex>::Face as Face>::Vertex>
     where
         Self::Face: Face,
@@ -347,13 +404,15 @@ pub trait AbstractSimplicialComplex {
     ///
     /// # Default Implementation
     /// - Find the given [`Face`](AbstractSimplicialComplex::Face) in the [`faces()`](AbstractSimplicialComplex::faces()).
-    /// - Requires the associated type `Face` to satisfy the trait `PartialEq`.
+    /// - Requires the associated types `Face` to have trait `Face + Clone + Hash + Eq` and `Face::Vertex` to have traits `Clone + PartialEq`.
     fn contains(&self, face: &Self::Face) -> bool
     where
         Self::Face: Face + Clone + Hash + Eq,
-        <Self::Face as Face>::Vertex: Clone,
+        <Self::Face as Face>::Vertex: Clone + PartialEq,
     {
-        self.generators().iter().any(|x| x == face)
+        self.generators().iter().any(|x| {
+            x == face || x.is_ancestor_of(face)
+        })
     }
 
     /// Return the [`size`](Face::size()) of a [`maximal Face`](AbstractSimplicialComplex::is_maximal()) in this [`AbstractSimplicialComplex`].
@@ -362,7 +421,7 @@ pub trait AbstractSimplicialComplex {
     ///
     /// # Default Implementation
     /// - Return the [`size()`](Face::size()) of the first [`generator`](AbstractSimplicialComplex::generators()).
-    /// - Requires the associated type `Face` to satisfy the trait `Face`.
+    /// - Requires the associated type `Face` to have trait `Face`.
     fn size(&self) -> usize
     where
         Self::Face: Face
@@ -374,7 +433,7 @@ pub trait AbstractSimplicialComplex {
     ///
     /// # Default Implementation
     /// - Whether `self.size() == 0`.
-    /// - Requires the associated type `Face` to satisfy the trait `Face`.
+    /// - Requires the associated type `Face` to have trait `Face`.
     fn is_empty(&self) -> bool
     where
         // <Self as AbstractSimplicialComplex>::Face: Face
@@ -387,7 +446,7 @@ pub trait AbstractSimplicialComplex {
     ///
     /// # Default Implementation
     /// - Find it in `generators()`.
-    /// - Requires the associated type `Face` to satisfy the traits `Face + PartialEq`.
+    /// - Requires the associated type `Face` to have traits `Face + PartialEq`.
     fn is_maximal(&self, face: &Self::Face) -> bool
     where
         Self::Face: Face + PartialEq,
@@ -575,9 +634,9 @@ pub trait Face {
 
 }
 
-/// A type for storing bits in a variable-length [`Vec`] of [`bit_field::BitField`]s.
+/// A type for storing bits in a variable-length [`Vec`] of [`u8`]s.
 ///
-/// Maps [`bit_field::BitField`] over a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to avoid out-of-bounds panics.
+/// Maps [`bit_field::BitField`] over a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
 //
 // [ ] - TODO: consider implementing [`SliceIndex`](https://doc.rust-lang.org/std/slice/trait.SliceIndex.html) to access bits
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -615,12 +674,9 @@ impl BitStore {
             Bound::Included(&value) => value + 1,
             Bound::Unbounded => self.bit_length,
         };
-        // println!("valid_range({}..{})", start, end);
         if start <= end && start <= self.bit_length && end <= self.bit_length {
-            // println!("valid_range => Ok(Range {}, {})", start, end);
             Ok(Range { start, end })
         } else {
-            // println!("valid_range => Err with start:{} end:{} bit_length:{}", start, end, self.bit_length);
             Err("out of bounds for BitStore")
         }
     }
@@ -648,7 +704,7 @@ impl BitStore {
     pub fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
         if value == self.bit_length {
             Ok(self)
-        } else if value > self.bit_length  && value < self.get_capacity() {
+        } else if value > self.bit_length && value <= self.get_capacity() {
             self.bit_length = value;
             Ok(self)
         } else {
@@ -698,16 +754,13 @@ impl BitStore {
             0b00000010u8,
             0b00000001u8,
         ];
-        let the_offset = (self.get_capacity() - self.bit_length) % u8::BITS as usize;
         let f = |x| {
             let the_int = x / u8::BITS as usize;
             let the_bit = x % u8::BITS as usize;
             if self.bits.is_empty() {
                 false
-            } else if the_int < self.get_bit_length() / u8::BITS as usize {
-                self.bits[the_int] & ROW_MASK[the_bit] > 0
             } else {
-                self.bits[the_int] & ROW_MASK[the_offset + the_bit] > 0
+                self.bits[the_int] & ROW_MASK[the_bit] > 0
             }
         };
         Ok(self.valid_range(range)?.map(f).collect())
@@ -730,42 +783,36 @@ impl BitStore {
             0b00000010u8,
             0b00000001u8,
         ];
-        let the_offset = self.get_capacity().saturating_sub(self.bit_length) % u8::BITS as usize;
         for (idx, &val) in zip(self.valid_range(range)?, values.iter()) {
             let the_int = idx / u8::BITS as usize;
             let the_bit = idx % u8::BITS as usize;
-            if the_int < self.get_bit_length() / u8::BITS as usize {
-                if val {
-                    self.bits[the_int] |= ROW_MASK[the_bit];
-                } else {
-                    self.bits[the_int] &= ! (ROW_MASK[the_bit] as u8);
-                }
-            } else if val {
-                self.bits[the_int] |= ROW_MASK[the_offset + the_bit];
+            print!("set_bits cap:{} bit_len:{} int:{} bit:{} self:{:b}", self.get_capacity(), self.get_bit_length(), the_int, the_bit, self);
+            if val {
+                self.bits[the_int] |= ROW_MASK[the_bit];
             } else {
-                self.bits[the_int] &= ! (ROW_MASK[the_offset + the_bit] as u8);
+                self.bits[the_int] &= ! (ROW_MASK[the_bit] as u8);
             }
+            println!("->{:b}", self);
         }
         Ok(self)
     }
 
     /// Return the count of `true` bits in the `BitStore`.
     pub fn count_ones(&self) -> usize {
-        // self.get_bits(0..self.get_bit_length()).unwrap().iter().filter(|&x| *x).count()
-        const OFFSET_MASK: [u8; 8] = [
+        const REST_MASK: [u8; 8] = [
+            0b10000000u8,
+            0b11000000u8,
+            0b11100000u8,
+            0b11110000u8,
+            0b11111000u8,
+            0b11111100u8,
+            0b11111110u8,
             0b11111111u8,
-            0b01111111u8,
-            0b00111111u8,
-            0b00011111u8,
-            0b00000111u8,
-            0b00001111u8,
-            0b00000011u8,
-            0b00000001u8,
         ];
         if self.bit_length > 0 {
             let last_int = (self.get_bit_length() - 1) / u8::BITS as usize;
-            // println!("count_ones({:?}) bit_length:{} last_int:{}", self, self.get_bit_length(), &last_int);
-            let last_count = (self.bits[last_int] & OFFSET_MASK[(self.get_capacity() - self.bit_length) % u8::BITS as usize]).count_ones() as usize;
+            // let last_count = (self.bits[last_int] & REST_MASK[(self.get_capacity() - self.bit_length) % u8::BITS as usize]).count_ones() as usize;
+            let last_count = (self.bits[last_int] & REST_MASK[self.get_bit_length() - last_int * u8::BITS as usize - 1]).count_ones() as usize;
             self.bits[..last_int].iter().fold(last_count, |acc, x| acc + x.count_ones() as usize)
         } else {
             0
@@ -785,9 +832,7 @@ impl BitStore {
                 .get_bit_length();
             for idx in 0..res.len() {
                 if res[idx].bit_length < max_bit_length {
-                    println!("res[{}] capacity:{} bit_length:{} max_bit_length:{}", idx, res[idx].get_capacity(), res[idx].get_bit_length(), max_bit_length);
                     res[idx].set_capacity(max_bit_length).unwrap();
-                    println!(" new capacity:{}", res[idx].get_capacity());
                     res[idx].set_bit_length(max_bit_length).unwrap();
                 }
             }
@@ -898,14 +943,14 @@ impl fmt::Binary for BitStore {
         let whole_ints = self.bit_length / u8::BITS as usize;
         let rest_bits = self.bit_length % u8::BITS as usize;
         const REST_MASK: [u8; 8] = [
-            0b00000000u8,
-            0b00000001u8,
-            0b00000011u8,
-            0b00000111u8,
-            0b00001111u8,
-            0b00011111u8,
-            0b00111111u8,
-            0b01111111u8,
+            0b10000000u8,
+            0b11000000u8,
+            0b11100000u8,
+            0b11110000u8,
+            0b11111000u8,
+            0b11111100u8,
+            0b11111110u8,
+            0b11111111u8,
         ];
 
         let mut s = String::from("[");
@@ -925,7 +970,8 @@ impl fmt::Binary for BitStore {
                 write!(
                     s,
                     ", {:b}",
-                    self.bits[whole_ints] & REST_MASK[rest_bits]
+                    // self.bits[whole_ints] & REST_MASK[rest_bits - 1]
+                    (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits)
                 )
                 .unwrap();
             }
@@ -1028,15 +1074,18 @@ impl Face for BitStore {
     }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
-        let max = match vertices.iter().max() {
+        let &max = match vertices.iter().max() {
             None => return Self::new(),
             Some(n) => n
         };
         let mut res = Self::new();
-        res.bit_length = *max + 1;
-        res.bits = vec![0u8; 1 + *max / u8::BITS as usize];
+        // res.bit_length = *max + 1;
+        // res.bits = vec![0u8; 1 + *max / u8::BITS as usize];
+        res.set_capacity(max).unwrap();
+        res.set_bit_length(max).unwrap();
         for v in vertices {
-            res.set_bit(v, true).unwrap();
+            // res.set_bit(v, true).unwrap();
+            res.insert(v);
         }
         res
     }
@@ -1105,7 +1154,7 @@ mod tests {
 
     #[test]
     fn bitstore_from_vecbool_works() {
-        assert_eq!(BitStore::from(vec![false, false, false, false, false, false, false, true, true]), BitStore { bit_length: 9, bits: vec![0b00000001u8, 0b1u8]});
+        assert_eq!(BitStore::from(vec![false, false, false, false, false, false, false, true, true]), BitStore { bit_length: 9, bits: vec![0b00000001u8, 0b10000000u8]});
     }
 
     #[test]
@@ -1151,10 +1200,10 @@ mod tests {
         assert_eq!(bs.get_bit_length(), 15);
 
         assert_eq!(BitStore::from(vec![0b01010101u8]).get_bits(0..8), Ok(vec![false, true, false, true, false, true, false, true]));
-        assert_eq!(bs.get_bits(0..15), Ok(vec![false, false, true, true, false, false, false, true, false, true, false, false, true, false, true]), "for {:?}", bs);
+        assert_eq!(bs.get_bits(0..15), Ok(vec![false, false, true, true, false, false, false, true, false, false, true, false, false, true, false]), "for {:?}", bs);
         assert_eq!(bs.get_bit(2), Ok(true));
         assert_eq!(bs.get_bits(2..4), Ok(vec![true, true]));
-        assert_eq!(bs.get_bits(6..10), Ok(vec![false, true, false, true]));
+        assert_eq!(bs.get_bits(6..10), Ok(vec![false, true, false, false]));
         assert!(bs.set_bits(6..10, vec![false, true, true, false]).is_ok());
         assert_eq!(bs.get_bits(6..10), Ok(vec![false, true, true, false]));
         assert!(bs.set_bit(3, false).is_ok());
@@ -1166,19 +1215,36 @@ mod tests {
     #[test]
     fn bitstore_count_ones_works() {
         let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
-        assert_eq!(bs.count_ones(), 6);
+        assert_eq!(bs.count_ones(), 5);
         assert_eq!(BitStore::from(vec![0b01010101u8]).count_ones(), 4, "count_ones for {:?}", BitStore::from(vec![0b01010101u8]));
+    }
+
+    #[test]
+    fn bitstore_normalize_works() {
+        let bs1 = BitStore::from(vec![0b00110001u8]);
+        let bs2 = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        let bs_slice = &vec![bs1.clone(), bs2.clone()][..];
+        assert_eq!(BitStore::normalize(bs_slice), vec![BitStore {bit_length: 14, bits: vec![0b00110001u8, 0]}, bs2]);
     }
 
     #[test]
     fn bitstore_binary_works() {
         assert_eq!(format!("{:b}", BitStore::from(vec![0b01010101u8])), "[01010101]".to_string());
+        assert_eq!(format!("{:b}", BitStore::from_vertices(vec![2, 4, 8, 9, 12])), "[00101000, 11001]".to_string());
     }
 
     #[test]
     fn face_bitstore_from_vertices_works() {
-        assert_eq!(BitStore::from_vertices(vec![2, 4, 8]), BitStore {bit_length: 9, bits: vec![0b00101000, 0b00000001u8]});
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        // let bs2 = BitStore {bit_length: 9, bits: vec![0b00101000, 0b00000001u8]};
+        let bs2 = BitStore {bit_length: 9, bits: vec![0b00101000, 0b10000000u8]};
+        assert_eq!(bs1, bs2, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}", bs1, bs1, bs2, bs2);
+        assert_eq!(BitStore::from_vertices(vec![2, 4]), BitStore {bit_length: 5, bits: vec![0b00101000]});
         assert_eq!(BitStore::from_vertices(vec![]), BitStore {bit_length: 0, bits: vec![]});
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        assert_eq!(bs3, BitStore {bit_length: 9, bits: vec![0b00100000, 0b10000000u8]});
+        let bs5 = BitStore::from_vertices(vec![5, 7]);
+        assert_eq!(bs5, BitStore {bit_length: 8, bits: vec![0b00000101]});
     }
 
     #[test]
@@ -1264,7 +1330,9 @@ mod tests {
     fn face_bitstore_is_ancestor_of_works() {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 4]);
         assert!(bs1.is_ancestor_of(&bs2));
+        assert!(bs1.is_ancestor_of(&bs3));
         assert!(!bs2.is_ancestor_of(&bs1));
     }
 
@@ -1356,9 +1424,13 @@ mod tests {
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
         let bs4 = BitStore::from_vertices(vec![2, 4]);
+        let bs5 = BitStore::from_vertices(vec![5, 7]);
         let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(asc1.contains(&bs1));
-        assert!(!asc1.contains(&bs4));
+        assert!(asc1.contains(&bs2));
+        assert!(asc1.contains(&bs3));
+        assert!(asc1.contains(&bs4));
+        assert!(!asc1.contains(&bs5));
     }
 
     #[test]
@@ -1366,9 +1438,12 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs4 = BitStore::from_vertices(vec![2, 4]);
         let mut asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone()]);
         asc1.insert_face(bs3.clone());
         assert!(asc1.contains(&bs3));
+        asc1.insert_face(bs4.clone());
+        assert!(asc1.contains(&bs4));
     }
 
     #[test]
@@ -1432,7 +1507,7 @@ mod tests {
 
     #[test]
     fn brel_binary_works() {
-        assert_eq!(format!("{:b}", BRel::from(vec![BitStore::from(vec![0b01010101u8])])), "[\n [01010101]\n]".to_string());
+        assert_eq!(format!("{:b}", BRel::from(vec![BitStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
     }
 
     #[test]
@@ -1534,31 +1609,66 @@ mod tests {
         assert_eq!(r1.set_col(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_col(2), bs1.get_bits(0..bs1.get_bit_length()));
     }
 
+    // #[test]
+    // fn reltrait_brel_transpose_works() {
+    //     let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+    //     let bs2 = BitStore::from_vertices(vec![4, 8]);
+    //     let bs3 = BitStore::from_vertices(vec![2, 8]);
+    //     let mut r1 = BRel::from(vec![bs1, bs2, bs3]);
+    //     let bs1_t = BitStore::from_vertices(vec![]);
+    //     let bs2_t = BitStore::from_vertices(vec![]);
+    //     let bs3_t = BitStore::from_vertices(vec![0, 2]);
+    //     let bs4_t = BitStore::from_vertices(vec![]);
+    //     let bs5_t = BitStore::from_vertices(vec![0, 1]);
+    //     let bs6_t = BitStore::from_vertices(vec![]);
+    //     let bs7_t = BitStore::from_vertices(vec![]);
+    //     let bs8_t = BitStore::from_vertices(vec![]);
+    //     let bs9_t = BitStore::from_vertices(vec![0, 1, 2]);
+    //     let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
+    //     let res = r1.transpose().unwrap();
+    //     assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9,3,Axis::Row), "res:{:b}", res);
+    //     assert_eq!(res, &mut r1_t);
+
+    //     res.set_major_axis(&Axis::Column);
+    //     r1_t.set_major_axis(&Axis::Column);
+    //     assert_eq!(res, &r1_t);
+    // }
+
     #[test]
-    fn reltrait_brel_transpose_works() {
+    fn mydowker_new_works() {
+        assert_eq!(MyDowker::new(), MyDowker { generators: ASC::new(), weights: BTreeMap::new() });
+    }
+
+    #[test]
+    fn mydowker_from_brel_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![2, 4]);
+        let bs2_normalized = &BitStore::normalize(&[bs1.clone(), bs2.clone()])[1];
+        let br = BRel::from(vec![bs1.clone(), bs2.clone()]);
+        let mut bt: BTreeMap<BitStore, usize> = BTreeMap::new();
+        bt.insert(bs1.clone(), 1);
+        bt.insert(bs2_normalized.clone(), 1);
+        assert_eq!(MyDowker::from(&br), MyDowker { generators: vec![bs1.clone()], weights: bt}, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}\nbr[0]:{:?}={:b} br[1]:{:?}={:b}\n", bs1, bs1, bs2, bs2, br.get_contents()[0], br.get_contents()[0], br.get_contents()[1], br.get_contents()[1]);
+    }
+
+    #[test]
+    fn mydowker_is_empty_works() {
+        assert!(MyDowker::new().is_empty())
+    }
+
+    #[test]
+    fn mydowker_diff_weight_works() {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let mut r1 = BRel::from(vec![bs1, bs2, bs3]);
-        let bs1_t = BitStore::from_vertices(vec![]);
-        let bs2_t = BitStore::from_vertices(vec![]);
-        let bs3_t = BitStore::from_vertices(vec![0, 2]);
-        let bs4_t = BitStore::from_vertices(vec![]);
-        let bs5_t = BitStore::from_vertices(vec![0, 1]);
-        let bs6_t = BitStore::from_vertices(vec![]);
-        let bs7_t = BitStore::from_vertices(vec![]);
-        let bs8_t = BitStore::from_vertices(vec![]);
-        let bs9_t = BitStore::from_vertices(vec![0, 1, 2]);
-        let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
-        let res = r1.transpose().unwrap();
-        assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9,3,Axis::Row), "res:{:b}", res);
-        assert_eq!(res, &mut r1_t);
+        let br = BRel::from(vec![bs1.clone(), bs2.clone()]);
+        let dk = MyDowker::from(&br);
+        assert_eq!(dk.diff_weight(bs1.clone()), 1);
+        assert_eq!(dk.diff_weight(bs2.clone()), 1);
+    }
 
-        res.set_major_axis(&Axis::Column);
-        r1_t.set_major_axis(&Axis::Column);
-        println!("res flipped:\n{:b}", res);
-        println!("r1_t flipped:\n{:b}", r1_t);
-        assert_eq!(res, &r1_t);
+    #[test]
+    fn mydowker_tot_weight_works() {
+
     }
 
 }
