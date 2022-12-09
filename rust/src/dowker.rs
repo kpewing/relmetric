@@ -315,7 +315,7 @@ pub trait RelationTrait {
 pub struct ASC(Vec<BitStore>);
 
 impl ASC {
-    fn new() -> Self
+    pub fn new() -> Self
     {
         Default::default()
     }
@@ -950,10 +950,6 @@ impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
 impl Face for BitStore {
     type Vertex = usize;
-
-    // fn new() -> Self {
-    //     BitStore::new()
-    // }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
         let &max = match vertices.iter().max() {
