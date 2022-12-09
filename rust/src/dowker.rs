@@ -863,218 +863,89 @@ impl From<Vec<bool>> for BitStore {
     }
 }
 
-// [ ] - TODO: use a macro to generate for the various numbers
-impl From<Vec<u8>> for BitStore {
-    fn from(ints: Vec<u8>) -> Self {
-        BitStore {
-            bit_length: ints.len() * u8::BITS as usize,
-            bits: ints,
-        }
-    }
-}
-
-impl From<Vec<u16>> for BitStore {
-    fn from(ints: Vec<u16>) -> Self {
-        BitStore {
-            bit_length: ints.len() * u16::BITS as usize,
-            bits: ints
-                .iter()
-                .fold(vec![], |mut acc, x| {
-                    acc.push(x.to_be_bytes().to_vec());
-                    acc
-                })
-                .concat(),
-        }
-    }
-}
-
-impl From<Vec<u32>> for BitStore {
-    fn from(ints: Vec<u32>) -> Self {
-        BitStore {
-            bit_length: ints.len() * u32::BITS as usize,
-            bits: ints
-                .iter()
-                .fold(vec![], |mut acc, x| {
-                    acc.push(x.to_be_bytes().to_vec());
-                    acc
-                })
-                .concat(),
-        }
-    }
-}
-
-impl From<Vec<u64>> for BitStore {
-    fn from(ints: Vec<u64>) -> Self {
-        BitStore {
-            bit_length: ints.len() * u64::BITS as usize,
-            bits: ints
-                .iter()
-                .fold(vec![], |mut acc, x| {
-                    acc.push(x.to_be_bytes().to_vec());
-                    acc
-                })
-                .concat(),
-        }
-    }
-}
-
-impl From<Vec<u128>> for BitStore {
-    fn from(ints: Vec<u128>) -> Self {
-        BitStore {
-            bit_length: ints.len() * u128::BITS as usize,
-            bits: ints
-                .iter()
-                .fold(vec![], |mut acc, x| {
-                    acc.push(x.to_be_bytes().to_vec());
-                    acc
-                })
-                .concat(),
-        }
-    }
-}
-
-impl From<Vec<usize>> for BitStore {
-    fn from(ints: Vec<usize>) -> Self {
-        BitStore {
-            bit_length: ints.len() * usize::BITS as usize,
-            bits: ints
-                .iter()
-                .fold(vec![], |mut acc, x| {
-                    acc.push(x.to_be_bytes().to_vec());
-                    acc
-                })
-                .concat(),
-        }
-    }
-}
-
-impl fmt::Binary for BitStore {
-    /// Show a big-endian binary representation of the [`BitStore`] on one line.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let whole_ints = self.bit_length / u8::BITS as usize;
-        let rest_bits = self.bit_length % u8::BITS as usize;
-        const REST_MASK: [u8; 8] = [
-            0b10000000u8,
-            0b11000000u8,
-            0b11100000u8,
-            0b11110000u8,
-            0b11111000u8,
-            0b11111100u8,
-            0b11111110u8,
-            0b11111111u8,
-        ];
-
-        let mut s = String::from("[");
-        s.push_str(
-            &self
-                .bits
-                .iter()
-                .take(whole_ints)
-                .map(|x| format!("{:08b}", x))
-                .collect::<Vec<String>>()
-                .join(", "),
-        );
-        if rest_bits > 0 {
-            if whole_ints == 0 {
-                write!(s, "{:b}", self.bits[whole_ints] & REST_MASK[rest_bits]).unwrap();
-            } else {
-                write!(
-                    s,
-                    ", {:b}",
-                    // self.bits[whole_ints] & REST_MASK[rest_bits - 1]
-                    (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits)
-                )
-                .unwrap();
+macro_rules! impl_bitstore_from_vec_int {
+    ( $( u8 )? ) => {
+        impl From<Vec<u8>> for BitStore {
+            fn from(ints: Vec<u8>) -> Self {
+                BitStore {
+                    bit_length: ints.len() * u8::BITS as usize,
+                    bits: ints,
+                }
             }
         }
-        s.push(']');
-        write!(f, "{s}")
-    }
-}
+    };
+    ( $( $x:ty ),+ ) => {
+        $(
+            impl From<Vec<$x>> for BitStore {
+                fn from(ints: Vec<$x>) -> Self {
+                    BitStore {
+                        bit_length: ints.len() * <$x>::BITS as usize,
+                        bits: ints
+                            .iter()
+                            .fold(vec![], |mut acc, x| {
+                                acc.push(x.to_be_bytes().to_vec());
+                                acc
+                            })
+                            .concat(),
+                    }
+                }
+            }
 
-impl fmt::LowerHex for BitStore {
-    /// Show a big-endian lower hexadecimal representation of the [`BitStore`] on one line.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let whole_ints = self.bit_length / u8::BITS as usize;
-        let rest_bits = self.bit_length % u8::BITS as usize;
-        const REST_MASK: [u8; 8] = [
-            0b00000000u8,
-            0b00000001u8,
-            0b00000011u8,
-            0b00000111u8,
-            0b00001111u8,
-            0b00011111u8,
-            0b00111111u8,
-            0b01111111u8,
-        ];
-        let mut s = String::from("[");
-        s.push_str(
-            &self
-                .bits
-                .iter()
-                .take(whole_ints)
-                .map(|x| format!("{:02x}", x))
-                .collect::<Vec<String>>()
-                .join(", "),
-        );
-        if rest_bits > 0 {
-            if whole_ints == 0 {
-                write!(s, "{:x}", self.bits[whole_ints] & REST_MASK[rest_bits]).unwrap();
-            } else {
-                write!(
-                    s,
-                    ", {:x}",
-                    self.bits[whole_ints] & REST_MASK[rest_bits]
-                )
-                .unwrap();
+        )*
+    };
+}
+impl_bitstore_from_vec_int!(u8, u16, u32, u64, u128, usize);
+
+macro_rules! impl_bitstore_display {
+    ( $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
+        impl fmt::$fmt for BitStore {
+            /// Show a big-endian binary representation of the [`BitStore`] on one line.
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let whole_ints = self.bit_length / u8::BITS as usize;
+                let rest_bits = self.bit_length % u8::BITS as usize;
+                const REST_MASK: [u8; 8] = [
+                    0b10000000u8,
+                    0b11000000u8,
+                    0b11100000u8,
+                    0b11110000u8,
+                    0b11111000u8,
+                    0b11111100u8,
+                    0b11111110u8,
+                    0b11111111u8,
+                ];
+
+                let mut s = String::from("[");
+                s.push_str(
+                    &self
+                        .bits
+                        .iter()
+                        .take(whole_ints)
+                        .map(|x| format!($whole, x))
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                );
+                if rest_bits > 0 {
+                    if whole_ints == 0 {
+                        write!(s, $rest, self.bits[whole_ints] & REST_MASK[rest_bits]).unwrap();
+                    } else {
+                        write!(
+                            s,
+                            $part,
+                            // self.bits[whole_ints] & REST_MASK[rest_bits - 1]
+                            (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits)
+                        )
+                        .unwrap();
+                    }
+                }
+                s.push(']');
+                write!(f, "{s}")
             }
         }
-        s.push(']');
-        write!(f, "{s}")
-    }
+    };
 }
-
-impl fmt::UpperHex for BitStore {
-    /// Show a big-endian upper hexadecimal representation of the [`BitStore`] on one line.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let whole_ints = self.bit_length / u8::BITS as usize;
-        let rest_bits = self.bit_length % u8::BITS as usize;
-        const REST_MASK: [u8; 8] = [
-            0b00000000u8,
-            0b00000001u8,
-            0b00000011u8,
-            0b00000111u8,
-            0b00001111u8,
-            0b00011111u8,
-            0b00111111u8,
-            0b01111111u8,
-        ];
-        let mut s = String::from("[");
-        s.push_str(
-            &self
-                .bits
-                .iter()
-                .take(whole_ints)
-                .map(|x| format!("{:02X}", x))
-                .collect::<Vec<String>>()
-                .join(", "),
-        );
-        if rest_bits > 0 {
-            if whole_ints == 0 {
-                write!(s, "{:X}", self.bits[whole_ints] & REST_MASK[rest_bits]).unwrap();
-            } else {
-                write!(
-                    s,
-                    ", {:X}",
-                    self.bits[whole_ints] & REST_MASK[rest_bits]
-                )
-                .unwrap();
-            }
-        }
-        s.push(']');
-        write!(f, "{s}")
-    }
-}
+impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
+impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
+impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
 
 impl Face for BitStore {
