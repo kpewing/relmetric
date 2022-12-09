@@ -474,9 +474,6 @@ pub trait AbstractSimplicialComplex {
 pub trait Face {
     type Vertex;
 
-    // // Create a new, empty [`Face`].
-    // fn new() -> Self;
-
     /// Create a new [`Face`] from a [`Vec`] of [`Vertex`](Face::Vertex)s, without duplication.
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self;
 
@@ -671,6 +668,16 @@ impl BitStore {
             bit_length,
             bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
         }
+    }
+
+    /// Return `true` if the [`BitStore`] is empty, *i.e.*, the `bit_length` == 0.
+    pub fn is_empty(&self) -> bool {
+        self.bit_length == 0
+    }
+
+    /// Return `true` if the [`BitStore`] is zero, *i.e.*, the `bit_length` > 0 and all `bits` are `false`.
+    pub fn is_zero(&self) -> bool {
+        self.bit_length > 0 && self.count_ones() == 0
     }
 
     /// Return a validated [`Range`] into the [`BitStore`] or an "out of bounds" `Err`.
@@ -1028,6 +1035,20 @@ mod tests {
     #[test]
     fn bitstore_zero_works() {
         assert_eq!(BitStore::zero(9), BitStore { bit_length: 9, bits: vec![0u8; 2]});
+    }
+
+    #[test]
+    fn bitstore_is_empty_works() {
+        assert!(BitStore::new().is_empty());
+        assert!(!BitStore::zero(9).is_empty());
+        assert!(!BitStore { bit_length: 9, bits: vec![0u8, 1u8] }.is_empty());
+    }
+
+    #[test]
+    fn bitstore_is_zero_works() {
+        assert!(BitStore::zero(9).is_zero());
+        assert!(!BitStore::new().is_zero());
+        assert_eq!(!BitStore { bit_length: 6, bits: vec![0b00010000u8] }.is_zero(), true, "{:b}", BitStore { bit_length: 6, bits: vec![0b00010000u8] });
     }
 
     #[test]
