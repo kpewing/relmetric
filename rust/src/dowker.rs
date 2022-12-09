@@ -17,9 +17,9 @@ use itertools::Itertools;
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MyDowker {
     /// The *Dowker Complex*'s generators.
-    generators: ASC<BitStore, usize>,
+    generators: ASC,
     /// The [*differential weights*](MyDowker::diff_weight()) of [`Face`]s in the *Dowker Complex*.
-    weights: BTreeMap<<ASC<BitStore, usize> as AbstractSimplicialComplex>::Face, usize>,
+    weights: BTreeMap<BitStore, usize>,
 }
 
 impl MyDowker {
@@ -48,7 +48,7 @@ where
 }
 
 impl Dowker for MyDowker {
-    type A = ASC<BitStore, usize>;
+    type A = ASC;
     type F = BitStore;
 
     fn is_empty(&self) -> bool {
@@ -308,23 +308,21 @@ pub trait RelationTrait {
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
 }
 
-/// A `newtype` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on *vertex set* of `usize`s by simply storing the [*generators*](AbstractSimplicialComplex::generators()).
+/// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
+///
+/// Just wraps the [*generators*](AbstractSimplicialComplex::generators()).
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ASC<F, V>(Vec<F>)
-where
-    V: Hash + PartialEq + Eq + PartialOrd + Ord + Debug,
-    F: Face<Vertex=V>;
+pub struct ASC(Vec<BitStore>);
 
-impl AbstractSimplicialComplex for ASC<BitStore, usize> {
-    type Face = BitStore;
-
-    fn new() -> Self {
-        ASC(Vec::<Self::Face>::new())
+impl ASC {
+    fn new() -> Self
+    {
+        Default::default()
     }
+}
 
-    // fn from_faces(faces: Vec<Self::Face>) -> Self {
-    //     Face::maximals(&BitStore::normalize(&faces))
-    // }
+impl AbstractSimplicialComplex for ASC {
+    type Face = BitStore;
 
     fn generators(&self) -> Vec<Self::Face> {
         self.0.to_vec()
@@ -353,22 +351,22 @@ impl AbstractSimplicialComplex for ASC<BitStore, usize> {
     }
 }
 
-impl From<Vec<BitStore>> for ASC<BitStore, usize> {
+impl From<Vec<BitStore>> for ASC {
     fn from(faces: Vec<BitStore>) -> Self {
         ASC(Face::maximals(&BitStore::normalize(&faces)))
     }
 }
 
-/// A generic trait for an *abstract simplicial complex* of [`Face`]s of its associated type [`Face`](AbstractSimplicialComplex::Face)s.
+/// A generic trait for an *abstract simplicial complex* of its associated type [`Face`](AbstractSimplicialComplex::Face)s.
 ///
-/// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a family of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the family is also in the family. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of an [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex. The [`generators`](AbstractSimplicialComplex::generators()) of an [`AbstractSimplicialComplex`] are a collection of [`maximal`](AbstractSimplicialComplex::is_maximal()) [`Face`]s within the complex, the union of the [`closure`s](Face::closure()) of which equals the [`AbstractSimplicialComplex`], *i.e.*, one can "generate" the complex by combining the [`generators`](AbstractSimplicialComplex::generators()) and all of their [`descendants`](Face::descendants()), without duplication.
+/// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a collection of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the collection is also in the collection. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of an [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex. The [`generators`](AbstractSimplicialComplex::generators()) of an [`AbstractSimplicialComplex`] are a collection of [`maximal`](AbstractSimplicialComplex::is_maximal()) [`Face`]s within the complex, the union of the [`closure`s](Face::closure()) of which equals the [`AbstractSimplicialComplex`], *i.e.*, one can "generate" the complex by collecting the [`generators`](AbstractSimplicialComplex::generators()) and all of their [`descendants`](Face::descendants()), without duplication.
 ///
-/// **NB**: The common definition is extended to permit an [*asc*](AbstractSimplicialComplex) to be [`empty`](AbstractSimplicialComplex::is_empty()).
+/// **NB**: The common definition is extended to permit an [*asc*](AbstractSimplicialComplex) to be [`empty`].(AbstractSimplicialComplex::is_empty()).
 pub trait AbstractSimplicialComplex {
     type Face;
 
-    /// Create a new, empty [`AbstractSimplicialComplex`].
-    fn new() -> Self where Self: Sized;
+    // /// Create a new, empty [`AbstractSimplicialComplex`].
+    // fn new() -> Self where Self: Sized;
 
     /// Return a [`Vec`] of [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), the union of whose [`descendants`](Face::descendants()) *generates* this [`AbstractSimplicialComplex`].
     fn generators(&self) -> Vec<Self::Face>;
@@ -378,9 +376,6 @@ pub trait AbstractSimplicialComplex {
 
     /// Remove the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
     fn remove_face(&mut self, face: Self::Face) -> &mut Self;
-
-    // /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
-    // fn from_faces(faces: Vec<Self::Face>) -> Self;
 
     /// Return a [`Vec`] of all the [`Face`](AbstractSimplicialComplex::Face) s in this [`AbstractSimplicialComplex`].
     ///
