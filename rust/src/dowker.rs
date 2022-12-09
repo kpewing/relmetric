@@ -14,21 +14,22 @@ use itertools::Itertools;
 
 
 /// A `struct` to implement *Dowker Complexes*.
-///
-/// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MyDowker {
-    generators: ASC,
-    weights: BTreeMap<<ASC as AbstractSimplicialComplex>::Face, usize>,
+    /// The *Dowker Complex*'s generators.
+    generators: ASC<BitStore, usize>,
+    /// The [*differential weights*](MyDowker::diff_weight()) of [`Face`]s in the *Dowker Complex*.
+    weights: BTreeMap<<ASC<BitStore, usize> as AbstractSimplicialComplex>::Face, usize>,
 }
 
 impl MyDowker {
-    /// Create a new [`MyDowker`] from a [`Brel`] representing a *relation*.
+    /// Create a new, empty [`MyDowker`].
     pub fn new() -> Self {
         Default::default()
     }
 }
 
+/// Create a [`MyDowker`] from a [`BRel`].
 impl From<&BRel> for MyDowker
 where
     BRel: RelationTrait,
@@ -47,23 +48,19 @@ where
 }
 
 impl Dowker for MyDowker {
-    type A = ASC;
+    type A = ASC<BitStore, usize>;
     type F = BitStore;
-
-    // fn new() -> Self {
-    //     todo!()
-    // }
 
     fn is_empty(&self) -> bool {
         self.generators.is_empty()
     }
 
-    fn diff_weight(&self, face: Self::F) -> usize {
-        *self.weights.get(&face).unwrap_or(&0)
+    fn diff_weight(&self, face: &Self::F) -> usize {
+        *self.weights.get(face).unwrap_or(&0)
     }
 
-    fn tot_weight(&self, face: Self::F) -> usize {
-        Face::closure(&vec![face][..]).iter().fold(
+    fn tot_weight(&self, face: &Self::F) -> usize {
+        Face::closure(&vec![face.clone()][..]).iter().fold(
             0,
             |mut acc, x| {
                 acc += self.weights.get(x).unwrap_or(&0);
@@ -74,48 +71,70 @@ impl Dowker for MyDowker {
 
 }
 
-/// A generic trait for a *Dowker Complex*.
+/// A `trait` for a *Dowker Complex*.
+///
+/// A *Dowker Complex* represents the rows or columns of a *binary relation* as [`Face`]s of an [*abstract simplicial complex*](AbstractSimplicialComplex) and assigns a [*differential weight*](Dowker::diff_weight()) and a [*total weight*](Dowker::tot_weight()) to each such [`Face`].
+///
+/// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
 pub trait Dowker {
     type A: AbstractSimplicialComplex;
     type F: Face;
 
-    // fn new() -> Self;
-
-    /// Returns `true` if this [`Dowker`] is empty.
+    /// Returns `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
     fn is_empty(&self) -> bool;
 
     /// Returns the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *relation*.
-    fn diff_weight(&self, face: Self::F) -> usize;
+    fn diff_weight(&self, face: &Self::F) -> usize;
 
-    /// Returns the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`]s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
-    fn tot_weight(&self, face: Self::F) -> usize;
+    /// Returns the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
+    fn tot_weight(&self, face: &Self::F) -> usize;
 }
 
+/// An `enum` of the two axes of a *binary relation*.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum Axis {
     Column,
     #[default] Row,
 }
 
-/// A `struct` to implement *Relation*s.
+/// A `struct` to implement *binary relation*s as a bit field.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct BRel {
+    /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
     major_axis: Axis,
+    /// The bit field.
     contents: Vec<BitStore>
 }
 
+/// A `trait` for *binary relation*s.
 impl BRel {
+    /// Create a new, empty [`BRel`] with default [`major_axis`](BRel)
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn get_axis(&self) -> Axis {
+    /// Return the `major_axis`.
+    pub fn get_major_axis(&self) -> Axis {
         self.major_axis
     }
 
+    /// Set the `major_axis` to the given [`Axis`].
+    pub fn set_major_axis(&mut self, &axis: &Axis) -> &mut Self {
+        self.major_axis = axis;
+        self
+    }
+
+    /// Return the `contents`.
     pub fn get_contents(&self) -> Vec<BitStore> {
         self.contents.clone()
     }
+
+    /// Set the `major_axis` to the given [`Axis`].
+    pub fn set_contents(&mut self, contents: &Vec<BitStore>) -> &mut Self {
+        self.contents = contents.clone();
+        self
+    }
+
 }
 
 impl RelationTrait for BRel {
@@ -138,15 +157,6 @@ impl RelationTrait for BRel {
             major_axis,
             contents: vec![BitStore::zero(bit_length); vec_length],
         }
-    }
-
-    fn get_major_axis(&self) -> Self::MajorAxis {
-        self.major_axis
-    }
-
-    fn set_major_axis(&mut self, &axis: &Self::MajorAxis) -> &mut Self {
-        self.major_axis = axis;
-        self
     }
 
     fn get_row_count(&self) -> usize {
@@ -258,7 +268,9 @@ impl From<Vec<BitStore>> for BRel {
 }
 
 impl fmt::Binary for BRel {
-    /// Show a big-endian binary representation of the [`ASC`] on one line.
+    /// Display the [`BRel`] line-by-line, as big-endian binary of the `major_axis`, *i.e.* row-by-row for [column-major-axis](Axis::Column) and column-by-column for [column-major-axis](Axis::Column).
+    ///
+    /// **NB**: For [column-major-axis](Axis::Column), the result appears rotated by 90&deg; compared to the standard binary representation.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::from("[");
         if !self.is_empty() {
@@ -282,15 +294,12 @@ impl fmt::Binary for BRel {
     }
 }
 
-/// A generic trait for a *Relation*.
+/// A trait for a *binary relation*.
 pub trait RelationTrait {
     type MajorAxis;
     fn new() -> Self;
     fn is_empty(&self) -> bool;
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
-    fn get_major_axis(&self) -> Self::MajorAxis;
-    fn set_major_axis(&mut self, axis: &Self::MajorAxis) -> &mut Self;
-    // fn transpose(&mut self) -> Result<&mut Self, &'static str>;
     fn get_row_count(&self) -> usize;
     fn get_col_count(&self) -> usize;
     fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
@@ -299,43 +308,44 @@ pub trait RelationTrait {
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
 }
 
-/// A `newtype` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on the [`vertex set`](AbstractSimplicialComplex::Vertex) of `usize`s.
-///
-/// For more see the trait [`AbstractSimplicialComplex`](trait::AbstractSimplicialComplex).
-///
-type ASC = Vec<BitStore>;
+/// A `newtype` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on *vertex set* of `usize`s by simply storing the [*generators*](AbstractSimplicialComplex::generators()).
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ASC<F, V>(Vec<F>)
+where
+    V: Hash + PartialEq + Eq + PartialOrd + Ord + Debug,
+    F: Face<Vertex=V>;
 
-impl AbstractSimplicialComplex for ASC {
+impl AbstractSimplicialComplex for ASC<BitStore, usize> {
     type Face = BitStore;
 
     fn new() -> Self {
-        Vec::<Self::Face>::new()
+        ASC(Vec::<Self::Face>::new())
     }
 
-    fn from_faces(faces: Vec<Self::Face>) -> Self {
-        Face::maximals(&BitStore::normalize(&faces))
-    }
+    // fn from_faces(faces: Vec<Self::Face>) -> Self {
+    //     Face::maximals(&BitStore::normalize(&faces))
+    // }
 
     fn generators(&self) -> Vec<Self::Face> {
-        self.to_vec()
+        self.0.to_vec()
     }
 
     fn insert_face (&mut self, face: Self::Face) -> &mut Self {
-        println!("insert_face self:{:?} face:{:b} contains:{}", self, face, self.contains(&face));
+        // println!("insert_face self:{:?} face:{:b} contains:{}", self, face, self.contains(&face));
         if self.contains(&face) {
             self
         } else {
-            self.push(face);
-            *self = BitStore::normalize(self);
+            self.0.push(face);
+            self.0 = BitStore::normalize(&self.0);
             self
         }
     }
 
     fn remove_face (&mut self, face: Self::Face) -> &mut Self {
-        for idx in 0..self.len() {
-            if self[idx].is_ancestor_of(&face) {
-                for v in self[idx].vertices() {
-                    self[idx].set_bit(v, false).unwrap();
+        for idx in 0..self.0.len() {
+            if self.0[idx].is_ancestor_of(&face) {
+                for v in self.0[idx].vertices() {
+                    self.0[idx].set_bit(v, false).unwrap();
                 }
             }
         }
@@ -343,9 +353,15 @@ impl AbstractSimplicialComplex for ASC {
     }
 }
 
-/// A trait for an *abstract simplicial complex* that is generic with regard to its [`Face`](AbstractSimplicialComplex::Face)s.
+impl From<Vec<BitStore>> for ASC<BitStore, usize> {
+    fn from(faces: Vec<BitStore>) -> Self {
+        ASC(Face::maximals(&BitStore::normalize(&faces)))
+    }
+}
+
+/// A generic trait for an *abstract simplicial complex* of [`Face`]s of its associated type [`Face`](AbstractSimplicialComplex::Face)s.
 ///
-/// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a family of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the family is also in the family. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* `T` used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of the [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex.
+/// An [*abstract simplicial complex* (*asc*)](https://en.wikipedia.org/wiki/Abstract_simplicial_complex) is a family of sets called [`Face`]s that is closed under taking subsets; *i.e*, every subset of a [`Face`] in the family is also in the family. Each [`Face`] is a set of *vertices*. The *vertex set* of an [*asc*](AbstractSimplicialComplex) is the union of all the [`Face`]s, *i.e.*, all the *vertices* used in the [*asc*](AbstractSimplicialComplex). The [`size`](AbstractSimplicialComplex::size()) of an [`AbstractSimplicialComplex`] is the largest [`size`](Face::size()) of any [`Face`] in the complex. The [`generators`](AbstractSimplicialComplex::generators()) of an [`AbstractSimplicialComplex`] are a collection of [`maximal`](AbstractSimplicialComplex::is_maximal()) [`Face`]s within the complex, the union of the [`closure`s](Face::closure()) of which equals the [`AbstractSimplicialComplex`], *i.e.*, one can "generate" the complex by combining the [`generators`](AbstractSimplicialComplex::generators()) and all of their [`descendants`](Face::descendants()), without duplication.
 ///
 /// **NB**: The common definition is extended to permit an [*asc*](AbstractSimplicialComplex) to be [`empty`](AbstractSimplicialComplex::is_empty()).
 pub trait AbstractSimplicialComplex {
@@ -354,7 +370,7 @@ pub trait AbstractSimplicialComplex {
     /// Create a new, empty [`AbstractSimplicialComplex`].
     fn new() -> Self where Self: Sized;
 
-    /// Return a [`Vec`] of the [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), the union of whose [`descendants`](Face::descendants()) *generates* this [`AbstractSimplicialComplex`].
+    /// Return a [`Vec`] of [`maximal Faces`](AbstractSimplicialComplex::is_maximal()), the union of whose [`descendants`](Face::descendants()) *generates* this [`AbstractSimplicialComplex`].
     fn generators(&self) -> Vec<Self::Face>;
 
     /// Insert the given [`Face`](AbstractSimplicialComplex::Face) and return the resulting [`AbstractSimplicialComplex`].
@@ -363,13 +379,13 @@ pub trait AbstractSimplicialComplex {
     /// Remove the given [`Face`] and return the resulting [`AbstractSimplicialComplex`].
     fn remove_face(&mut self, face: Self::Face) -> &mut Self;
 
-    /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
-    fn from_faces(faces: Vec<Self::Face>) -> Self;
+    // /// Create a new [`AbstractSimplicialComplex`] from a [`Vec`] of [`Face`]s of [`Vertex`](Face::Vertex)s, without duplication.
+    // fn from_faces(faces: Vec<Self::Face>) -> Self;
 
     /// Return a [`Vec`] of all the [`Face`](AbstractSimplicialComplex::Face) s in this [`AbstractSimplicialComplex`].
     ///
     /// # Default Implementation
-    /// - Take the [`closure()`](Face::closure()) of the [`generators()`].
+    /// - Take the [`closure()`](Face::closure()) of the [`generators()`](AbstractSimplicialComplex::generators()).
     /// - Requires the associated type `Face` to have traits `Face + Clone + Hash + Eq` and its associated type `Face::Vertex` to have trait `Clone`.
     fn faces(&self) -> Vec<<Self as AbstractSimplicialComplex>::Face>
     where
@@ -426,7 +442,7 @@ pub trait AbstractSimplicialComplex {
     where
         Self::Face: Face
     {
-        self.generators()[0].size()
+        self.generators().iter().map(|x| x.size()).max().unwrap_or(0)
     }
 
     /// Return whether the [`AbstractSimplicialComplex`] is empty.
@@ -463,8 +479,8 @@ pub trait AbstractSimplicialComplex {
 pub trait Face {
     type Vertex;
 
-    // Create a new, empty [`Face`].
-    fn new() -> Self;
+    // // Create a new, empty [`Face`].
+    // fn new() -> Self;
 
     /// Create a new [`Face`] from a [`Vec`] of [`Vertex`](Face::Vertex)s, without duplication.
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self;
@@ -1069,9 +1085,9 @@ impl fmt::UpperHex for BitStore {
 impl Face for BitStore {
     type Vertex = usize;
 
-    fn new() -> Self {
-        BitStore::new()
-    }
+    // fn new() -> Self {
+    //     BitStore::new()
+    // }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
         let &max = match vertices.iter().max() {
@@ -1398,10 +1414,10 @@ mod tests {
         let bs5 = BitStore::from_vertices(vec![2]);
         let bs6 = BitStore::from_vertices(vec![4]);
         let bs7 = BitStore::from_vertices(vec![8]);
-        let asc1 = ASC::from_faces(vec![bs2.clone(), bs1.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs2.clone(), bs1.clone(), bs3.clone()]);
         // asc1.sort();
         let mut asc_vec = vec![bs3, bs2, bs4, bs1, bs5, bs6, bs7];
-        assert_eq!(asc1, Face::maximals(&asc_vec), "\nasc1.sort() != maximals(asc_vec.sort()");
+        assert_eq!(asc1.0, Face::maximals(&asc_vec), "\nasc1.sort() != maximals(asc_vec.sort()");
         let mut res = asc1.faces();
         res.sort();
         asc_vec.insert(0, bs0);
@@ -1414,7 +1430,7 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert_eq!(asc1.vertices(), vec![2, 4, 8]);
     }
 
@@ -1425,7 +1441,7 @@ mod tests {
         let bs3 = BitStore::from_vertices(vec![2, 8]);
         let bs4 = BitStore::from_vertices(vec![2, 4]);
         let bs5 = BitStore::from_vertices(vec![5, 7]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(asc1.contains(&bs1));
         assert!(asc1.contains(&bs2));
         assert!(asc1.contains(&bs3));
@@ -1439,7 +1455,7 @@ mod tests {
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
         let bs4 = BitStore::from_vertices(vec![2, 4]);
-        let mut asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone()]);
+        let mut asc1 = ASC::from(vec![bs1.clone(), bs2.clone()]);
         asc1.insert_face(bs3.clone());
         assert!(asc1.contains(&bs3));
         asc1.insert_face(bs4.clone());
@@ -1451,7 +1467,7 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let mut asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let mut asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         asc1.remove_face(bs3.clone());
         assert!(!asc1.contains(&bs3));
     }
@@ -1461,7 +1477,7 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert_eq!(asc1.size(), 3)
     }
 
@@ -1470,9 +1486,9 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(!asc1.is_empty());
-        assert!(ASC::from_faces(vec![]).is_empty());
+        assert!(ASC::from(vec![]).is_empty());
     }
 
     #[test]
@@ -1480,7 +1496,7 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(!asc1.is_maximal(&bs3), "not is_maximal({:b}) fails with generators {:?}", bs3, asc1.generators());
         assert!(asc1.is_maximal(&bs1), "is_maximal({:b}) fails with generators {:?}", bs1, asc1.generators());
     }
@@ -1490,18 +1506,18 @@ mod tests {
         let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let asc1 = ASC::from_faces(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
+        let asc1 = ASC::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         let res = asc1.generators().sort();
         let want = vec![bs1.clone(), bs2.clone(), bs3.clone()].sort();
         assert_eq!(res, want);
-        assert_eq!(ASC::from_faces(vec![]).generators(), vec![]);
+        assert_eq!(ASC::from(vec![]).generators(), vec![]);
     }
 
     #[test]
     fn brel_new_works() {
         let br = BRel::new();
         assert_eq!(br, BRel { major_axis: Axis::Row, contents: vec![]});
-        assert_eq!(br.get_axis(), BRel::default().get_axis());
+        assert_eq!(br.get_major_axis(), BRel::default().get_major_axis());
         assert_eq!(br.get_contents(), BRel::default().get_contents());
     }
 
@@ -1648,7 +1664,7 @@ mod tests {
         let mut bt: BTreeMap<BitStore, usize> = BTreeMap::new();
         bt.insert(bs1.clone(), 1);
         bt.insert(bs2_normalized.clone(), 1);
-        assert_eq!(MyDowker::from(&br), MyDowker { generators: vec![bs1.clone()], weights: bt}, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}\nbr[0]:{:?}={:b} br[1]:{:?}={:b}\n", bs1, bs1, bs2, bs2, br.get_contents()[0], br.get_contents()[0], br.get_contents()[1], br.get_contents()[1]);
+        assert_eq!(MyDowker::from(&br), MyDowker { generators: ASC(vec![bs1.clone()]), weights: bt}, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}\nbr[0]:{:?}={:b} br[1]:{:?}={:b}\n", bs1, bs1, bs2, bs2, br.get_contents()[0], br.get_contents()[0], br.get_contents()[1], br.get_contents()[1]);
     }
 
     #[test]
@@ -1662,8 +1678,8 @@ mod tests {
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let br = BRel::from(vec![bs1.clone(), bs2.clone()]);
         let dk = MyDowker::from(&br);
-        assert_eq!(dk.diff_weight(bs1.clone()), 1);
-        assert_eq!(dk.diff_weight(bs2.clone()), 1);
+        assert_eq!(dk.diff_weight(&bs1), 1);
+        assert_eq!(dk.diff_weight(&bs2), 1);
     }
 
     #[test]
