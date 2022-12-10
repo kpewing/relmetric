@@ -9,6 +9,7 @@ use core::iter::zip;
 use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
+use std::ops::{Not, BitAnd, BitOr, BitXor};
 
 use itertools::Itertools;
 
@@ -687,9 +688,21 @@ impl BitStore {
 
     /// Create a [`BitStore`] of given `bit_length` with bits all `false` (*i.e.*, "zero").
     pub fn zero(bit_length: usize) -> Self {
-        BitStore {
-            bit_length,
-            bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
+        if bit_length == 0 {
+            BitStore {
+                bit_length,
+                bits: vec![]
+            }
+        } else if bit_length % u8::BITS as usize > 0 {
+            BitStore {
+                bit_length,
+                bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
+            }
+        } else {
+            BitStore {
+                bit_length,
+                bits: vec![0u8; bit_length / u8::BITS as usize]
+            }
         }
     }
 
@@ -977,6 +990,53 @@ impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
 impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
 impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
+impl Not for BitStore {
+    type Output = Self;
+
+    /// Performs the unary [`!!`](std::ops::Not) operations for a [`Face`].
+    fn not(self) -> Self::Output {
+        BitStore {
+            bit_length: self.bit_length,
+            bits: self.bits.iter().map(|x| !x).collect(),
+        }
+    }
+}
+
+macro_rules! impl_bitstore_bit_logic {
+    ( $trait:tt, $func:tt, $op:tt ) => {
+        impl $trait for BitStore {
+            type Output = Self;
+
+            /// Performs the [`&`](std::ops::$trait::$func) operation for two [`BitStore`]s of same `bit_length`.
+            ///
+            /// Panics if the two [`BitStore`]s don't have the same `bit_length`.
+            fn $func(self, rhs: Self) -> Self::Output {
+                if self.is_empty() {
+                    rhs
+                } else if rhs.is_empty() {
+                    self
+                } else {
+                    assert!(
+                        self.bit_length == rhs.bit_length,
+                        "BitStore::$func requires non-empty BitStores to have equal bit_length but: {} != {}",
+                        self.bit_length,
+                        rhs.bit_length
+                    );
+                    assert!(self.bits.len() == rhs.bits.len(), "BitStore::$func requires non-empty BitStores to have equal length bit fields but: {} != {}", self.bits.len(), rhs.bits.len());
+                    BitStore {
+                        bit_length: self.bit_length,
+                        bits: zip(self.bits, rhs.bits)
+                            .map(|(s, r)| s $op r)
+                            .collect::<Vec<u8>>(),
+                    }
+                }
+            }
+        }
+    }
+}
+impl_bitstore_bit_logic!(BitAnd, bitand, &);
+impl_bitstore_bit_logic!(BitOr, bitor, |);
+impl_bitstore_bit_logic!(BitXor, bitxor, ^);
 
 impl Face for BitStore {
     type Vertex = usize;
@@ -1173,6 +1233,46 @@ mod tests {
         let bs2 = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         let bs_slice = &vec![bs1.clone(), bs2.clone()][..];
         assert_eq!(BitStore::normalize(bs_slice), vec![BitStore {bit_length: 14, bits: vec![0b00110001u8, 0]}, bs2]);
+    }
+
+    #[test]
+    fn bitstore_not_works() {
+        let v1 = vec![0b00110001u8, 0b01010101u8];
+        let not_v1 = vec![!0b00110001u8, !0b01010101u8];
+        assert_eq!(!BitStore::from(v1.clone()), BitStore::from(not_v1.clone()));
+        assert_eq!(!BitStore { bit_length: 10, bits: v1 }, BitStore { bit_length: 10, bits: not_v1 });
+    }
+
+    #[test]
+    fn bitstore_bitand_works() {
+        let v1 = vec![0b00110001u8, 0b01010101u8];
+        let not_v1 = vec![!0b00110001u8, !0b01010101u8];
+        let bs1 = BitStore::from(v1.clone());
+        let bs2 = BitStore::from(not_v1.clone());
+        assert_eq!(bs1.clone() & bs2.clone(), BitStore::zero(16));
+        assert_eq!(BitStore { bit_length: 10, bits: v1} & BitStore { bit_length: 10, bits: not_v1}, BitStore { bit_length: 10, bits: vec![0u8;2]});
+    }
+
+    #[test]
+    fn bitstore_bitor_works() {
+        let v1 = vec![0b00110001u8, 0b01010101u8];
+        let not_v1 = vec![!0b00110001u8, !0b01010101u8];
+        let bs1 = BitStore::from(v1.clone());
+        let bs2 = BitStore::from(not_v1.clone());
+        assert_eq!(bs1.clone() | bs2.clone(), ! BitStore::zero(16));
+        assert_eq!(BitStore { bit_length: 10, bits: v1} | BitStore { bit_length: 10, bits: not_v1}, BitStore { bit_length: 10, bits: vec![! 0u8; 2]});
+    }
+
+    #[test]
+    fn bitstore_bitxor_works() {
+        let v1 = vec![0b00110001u8, 0b01010101u8];
+        let v2 = vec![0b01010101u8, 0b00110001u8];
+        let v3 = vec![0b01100100u8, 0b01100100u8];
+        let bs1 = BitStore::from(v1.clone());
+        let bs2 = BitStore::from(v2.clone());
+        let bs3 = BitStore::from(v3.clone());
+        assert_eq!(bs1.clone() ^ bs2.clone(), bs3.clone() );
+        assert_eq!(BitStore { bit_length: 10, bits: v1} ^ BitStore { bit_length: 10, bits: v2}, BitStore { bit_length: 10, bits: v3});
     }
 
     #[test]
