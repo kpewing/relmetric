@@ -514,6 +514,26 @@ pub trait Face {
         self.size() == 0
     }
 
+    /// Return `true` unless this and the given [`Face`] share a *vertex*.
+    ///
+    /// **NB**: Unlike the `lua` version, [`empty`](Face::is_empty()) and [`zero`](Face::is_zero()) [`Face`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](Face::is_empty()) and non-[`zero`](Face::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
+    ///
+    /// # Default Implementation
+    /// - Whether both are `is_empty()` or the given [`Face`] `contains()` any *vertex* of this one.
+    /// - Requires associated type `Vertex` to have trait `PartialEq`.
+    fn is_disjoint(&self, other: &Self) -> bool
+    where
+        Self::Vertex: PartialEq
+    {
+        if self.is_empty() && other.is_empty() {
+            false
+        } else if self.is_empty() || other.is_empty() {
+            true
+        } else {
+            ! self.vertices().iter().any(|x| other.contains(x))
+        }
+    }
+
     /// Return `true` if this [`Face`] has [`size()`](Face::size()) 1 larger than the given [`Face`] and contains all of the given one's *vertices*.
     ///
     /// # Default Implementation
@@ -1016,6 +1036,28 @@ impl Face for BitStore {
         }
     }
 
+    // /// Return `true` unless this and the given [`BitStore`] share a `true` bit at some position or an error if they don't have equal `bit_length`s.
+    // ///
+    // /// **NB**: Unlike the `lua` version, [`empty`](BitStore::is_empty()) and [`zero`](BitStore::is_zero()) [`BitStore`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](BitStore::is_empty()) and non-[`zero`](BitStore::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
+    // fn is_disjoint(&self, other: &Self) -> Result<bool, &str> {
+    //     if self.is_empty() || self.is_zero() {
+    //         Ok(!(other.is_empty() || other.is_zero()))
+    //     } else if other.is_empty() || other.is_zero() {
+    //         Ok(true)
+    //     } else if self.bit_length != other.bit_length {
+    //         Err("requires non-empty BitStores to have equal bit_length")
+    //     } else {
+    //         Ok(zip(&self.bits, &other.bits).any(|(&a, &b)| a & b > 0))
+    //         // let mut res = true;
+    //         // for (i, elem) in self.bits.iter().enumerate() {
+    //         //     if elem & other.bits[i] > 0 {
+    //         //         res = false
+    //         //     }
+    //         // }
+    //         // Ok(res)
+    //     }
+    // }
+
 }
 
 // Unit Tests
@@ -1159,6 +1201,14 @@ mod tests {
         assert!(!bs.contains(&1));
         assert!(!bs.contains(&12));
         assert!(!bs.contains(&30));
+    }
+
+    #[test]
+    fn face_bitstore_is_disjoint_works() {
+        assert!(!BitStore::new().is_disjoint(&BitStore::new()));
+        assert!(BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::new()));
+        assert!(BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::from(vec![0b00101000u8])));
+        assert!(!BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::from(vec![0b0000100u8])));
     }
 
     #[test]
