@@ -9,7 +9,7 @@ use core::iter::zip;
 use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
-use std::ops::{Not, BitAnd, BitOr, BitXor};
+use std::ops::{Not, BitAnd, BitOr, BitXor, Sub};
 
 use itertools::Itertools;
 
@@ -98,6 +98,15 @@ pub enum Axis {
     #[default] Row,
 }
 
+impl fmt::Display for Axis {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            Axis::Column => "Column",
+            Axis::Row => "Row"
+        })
+    }
+}
+
 /// A `struct` to implement *binary relation*s as a bit field.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct BRel {
@@ -107,7 +116,6 @@ pub struct BRel {
     contents: Vec<BitStore>
 }
 
-/// A `trait` for *binary relation*s.
 impl BRel {
     /// Create a new, empty [`BRel`] with default [`major_axis`](BRel)
     pub fn new() -> Self {
@@ -295,6 +303,83 @@ impl fmt::Binary for BRel {
     }
 }
 
+macro_rules! impl_brel_bitops {
+    ( Not $( , $func:tt, $op:tt )? ) => {
+        impl Not for BRel {
+            type Output = Self;
+            fn not(self) -> Self::Output {
+                BRel {
+                    major_axis: self.major_axis,
+                    contents: self.contents.iter().map(|x| !x.clone()).collect(),
+                }
+            }
+        }
+    };
+    ( $trait:tt, $func:tt, $op:tt ) => {
+        impl $trait for BRel {
+            type Output = Self;
+            fn $func(self, rhs: Self) -> Self::Output {
+                if self.is_empty() {
+                    self
+                } else if rhs.is_empty() {
+                    rhs
+                } else {
+                    assert!(self.major_axis == rhs.major_axis, "BRel::$func requires non-empty `BRel`s to have same major_axis but: {} != {}", self.major_axis, rhs.major_axis);
+                    BRel {
+                        major_axis: self.major_axis,
+                        contents: zip(self.contents, rhs.contents)
+                            .map(|(s, r)| s $op r)
+                            .collect::<Vec<BitStore>>(),
+                    }
+                }
+            }
+        }
+    };
+}
+impl_brel_bitops!(Not, not, !);
+impl_brel_bitops!(BitAnd, bitand, &);
+impl_brel_bitops!(BitOr, bitor, |);
+impl_brel_bitops!(BitXor, bitxor, ^);
+
+impl Sub for BRel {
+    type Output = Self;
+
+    /// Multiset difference: one-for-one remove from `self` each [`BitStore`] that is found in `other`
+    ///
+    /// # Panics
+    /// - if the two [`BRel`]s don't have the same `major_axis`.
+    fn sub(self, other: Self) -> Self::Output {
+        assert_eq!(
+            self.major_axis, other.major_axis,
+            "BRel::sub() requires non-empty `BRel`s to have same `major_axis` but {} != {}",
+            self.major_axis, other.major_axis
+        );
+        let mut new = vec![];
+        let mut cut_self = vec![false; self.contents.len()];
+        let mut used_other = vec![false; other.contents.len()];
+        for (i, sc) in self.contents.iter().enumerate() {
+            for (j, oc) in other.contents.iter().enumerate() {
+                if !cut_self[i] && !used_other[j] && *sc == *oc {
+                    cut_self[i] = true;
+                    used_other[j] = true;
+                    print!("cut{}{} ", i, j);
+                    break;
+                }
+            }
+        }
+        for (i, col) in self.contents.iter().enumerate() {
+            if !cut_self[i] {
+                new.push(col.clone())
+            }
+        }
+        BRel {
+            major_axis: self.major_axis,
+            contents: new,
+        }
+    }
+}// }
+
+
 /// A trait for a *binary relation*.
 pub trait RelationTrait {
     type MajorAxis;
@@ -307,6 +392,13 @@ pub trait RelationTrait {
     fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str>;
     fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
+    // fn xgroup(&self) -> XGrouping;
+    // fn kappa(&self, max_count: Option<usize>) -> usize;
+    // fn rel_dist_bound(&self, other: &Relation) -> usize;
+    // fn match_columns(&self, other: &Relation, col_matches: &Vec<usize>) -> Self;
+    // fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32;
+    // fn min_weight(&self, other: &Relation) -> u32;
+    // fn distance(&self, other: &Relation) -> u32;
 }
 
 /// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
@@ -1567,6 +1659,78 @@ mod tests {
     }
 
     #[test]
+    fn brel_bitnot_works() {
+        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let br = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
+        let not_br = BRel { major_axis: Axis::Row, contents: vec![!bs1.clone(), !bs2.clone()]};
+        assert_eq!(!br.clone(), not_br, "br:{:b} not_br:{:b}", br, not_br);
+    }
+
+    #[test]
+    fn brel_bitand_works() {
+        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
+        let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
+        let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() & bs2.clone(), bs2.clone() & bs1.clone()]};
+        assert_eq!(br1.clone() & br2.clone(), want, "br1:{:b} br2:{:b} want:{:b}", br1, br2, want);
+    }
+
+    #[test]
+    fn brel_bitor_works() {
+        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
+        let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
+        let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() | bs2.clone(), bs2.clone() | bs1.clone()]};
+        assert_eq!(br1.clone() | br2.clone(), want, "br1:{:b} br2:{:b} want:{:b}", br1, br2, want);
+    }
+
+    #[test]
+    fn brel_bitxor_works() {
+        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
+        let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
+        let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() | bs2.clone(), bs2.clone() | bs1.clone()]};
+        assert_eq!(br1.clone() | br2.clone(), want, "br1:{:b} br2:{:b} want:{:b}", br1, br2, want);
+    }
+
+    #[test]
+    fn brel_sub_works() {
+        let r1 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x0000u16, 0x0000u16]),
+            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
+        let r2 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x0000u16, 0x0000u16]),
+        ]);
+        let r3 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
+        let mut res = r1.clone() - r2.clone();
+        assert_eq!(
+            res, r3,
+            "\nBRel::sub() fails for\n lhs:{:b}\n rhs:{:b}\nshould be {:b}\ngot       {:b}",
+            r1, r2, r3, res
+        );
+        res = res - r3.clone();
+        assert!(
+            res.is_empty(),
+            "\nBRel::sub() fails for\n lhs:{:b}\n rhs:{:b}\nshould be {:b}\ngot       {:b}",
+            res,
+            r3,
+            BRel::new(),
+            res
+        );
+    }
+
+    #[test]
     fn reltrait_brel_new_and_is_empty_work() {
         let r1 = BRel::new();
         assert_eq!(r1, BRel { major_axis: Axis::Row, contents: vec![]});
@@ -1664,6 +1828,42 @@ mod tests {
         r1.set_major_axis(&Axis::Column);
         assert_eq!(r1.set_col(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_col(2), bs1.get_bits(0..bs1.get_bit_length()));
     }
+
+    #[test]
+    fn reltrait_brel_xgroup_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_kappa_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_rel_dist_bound_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_match_columns_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_weight_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_min_weight_works() {
+        todo!()
+    }
+
+    #[test]
+    fn reltrait_brel_distance_works() {
+        todo!()
+    }
+
 
     // #[test]
     // fn reltrait_brel_transpose_works() {
