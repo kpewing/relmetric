@@ -9,7 +9,7 @@ use core::iter::zip;
 use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
-use std::ops::{Not, BitAnd, BitOr, BitXor, Sub};
+use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add};
 
 use itertools::Itertools;
 
@@ -141,6 +141,12 @@ impl BRel {
     /// Set the `major_axis` to the given [`Axis`].
     pub fn set_contents(&mut self, contents: &Vec<BitStore>) -> &mut Self {
         self.contents = contents.clone();
+        self
+    }
+
+    /// Sort the [`BitStore`]s in `contents` lexicographically by `major_axis` and `bits`.
+    pub fn sort(&mut self) -> &mut Self {
+        self.contents[..].sort();
         self
     }
 
@@ -341,10 +347,36 @@ impl_brel_bitops!(BitAnd, bitand, &);
 impl_brel_bitops!(BitOr, bitor, |);
 impl_brel_bitops!(BitXor, bitxor, ^);
 
+impl Add for BRel {
+    type Output = Self;
+
+    /// Multiset sum: disjoint union, *i.e.*, combine all [`BitStore`]s in both [`BRel`]s.
+    ///
+    /// For more on multiset operations, see <https://en.wikipedia.org/wiki/Multiset#Basic_properties_and_operations>.
+    ///
+    /// # Panics
+    /// - if the two [`BRel`]s don't have the same `major_axis`.
+    fn add(self, other: Self) -> Self::Output {
+        assert_eq!(
+            self.major_axis, other.major_axis,
+            "BRel::add() requires non-empty `BRel`s to have same `major_axis` but {} != {}",
+            self.major_axis, other.major_axis
+        );
+        let mut new = self.contents.clone();
+        new.extend_from_slice(&other.contents[..]);
+        BRel {
+            major_axis: self.major_axis,
+            contents: new,
+        }
+    }
+}
+
 impl Sub for BRel {
     type Output = Self;
 
-    /// Multiset difference: one-for-one remove from `self` each [`BitStore`] that is found in `other`
+    /// Multiset difference: one-for-one remove from `self` each [`BitStore`] that is found in `other`.
+    ///
+    /// For more on multiset operations, see <https://en.wikipedia.org/wiki/Multiset#Basic_properties_and_operations>.
     ///
     /// # Panics
     /// - if the two [`BRel`]s don't have the same `major_axis`.
@@ -377,7 +409,7 @@ impl Sub for BRel {
             contents: new,
         }
     }
-}// }
+}
 
 
 /// A trait for a *binary relation*.
@@ -1727,6 +1759,32 @@ mod tests {
             r3,
             BRel::new(),
             res
+        );
+    }
+
+    #[test]
+    fn brel_add_works() {
+        let mut r1 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x0000u16, 0x0000u16]),
+            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
+        let r2 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x0000u16, 0x0000u16]),
+        ]);
+        let r3 = BRel::from(vec![
+            BitStore::from(vec![0x3000u16, 0x000fu16]),
+            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+        ]);
+        let mut res = r2.clone() + r3.clone();
+        res.sort();
+        r1.sort();
+        assert_eq!(
+            res, r1,
+            "\nBRel::add() fails for\n lhs:\n{:b}\n rhs:\n{:b}\nshould be\n{:b}\ngot\n{:b}",
+            r2, r3, r1, res
         );
     }
 
