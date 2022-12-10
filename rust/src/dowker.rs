@@ -474,6 +474,9 @@ pub trait AbstractSimplicialComplex {
 pub trait Face {
     type Vertex;
 
+    /// Create a new, empty [`Face`].
+    fn new() -> Self;
+
     /// Create a new [`Face`] from a [`Vec`] of [`Vertex`](Face::Vertex)s, without duplication.
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self;
 
@@ -977,6 +980,10 @@ impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
 impl Face for BitStore {
     type Vertex = usize;
+
+    fn new() -> Self {
+        Self::new()
+    }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
         let &max = match vertices.iter().max() {
