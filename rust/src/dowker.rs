@@ -9,7 +9,7 @@ use core::iter::zip;
 use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
-use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add};
+use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index};
 
 use itertools::Itertools;
 
@@ -81,18 +81,98 @@ pub trait Dowker {
     type A: AbstractSimplicialComplex;
     type F: Face;
 
-    /// Returns `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
+    /// Return `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
     fn is_empty(&self) -> bool;
 
-    /// Returns the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *relation*.
+    /// Return the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *relation*.
     fn diff_weight(&self, face: &Self::F) -> usize;
 
-    /// Returns the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
+    /// Return the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
     fn tot_weight(&self, face: &Self::F) -> usize;
 }
 
+/// Represents the partition of a *binary relation* [`BRel`] into [`DJGroup`]s.
+///
+/// A [`BRel`]'s [`BitStore`]s can be partitioned into a collection of [`DJGroup`]s, each collecting [`BitStore`]s that are *each* not [`disjoint`](BitStore::is_disjoint()) (i.e., share a `true` bit) with *some* other member of the [`DJGroup`], but *all* are [`disjoint`](BitStore::is_disjoint()) from *all* other [`BitStore`]s *not* in that [`DJGroup`]. The partition can be with respect to either [`Row`](Axis::Row) or [`Column`](Axis::Column).
+///
+/// NB: Because a partition makes no sense away from its [`BRel`], the [`DJGrouping`] inherits the [lifetime](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html) of its [`BRel`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DJGrouping<'a> {
+    relation: &'a BRel,
+    major_axis: Axis,
+    pub partition: Vec<DJGroup>,
+}
+
+impl DJGrouping<'_> {
+    /// Return an [`DJGrouping`] for the given [`BRel`] or `None` if the [`BRel`] is [`empty`](BRel::is_empty()).
+    pub fn new(rel: &BRel) -> DJGrouping {
+        rel.xgroup()
+    }
+}
+
+impl fmt::Display for DJGrouping<'_> {
+    /// Display the partitioned [`BRel`] as a binary matrix of [`DJGroup`]'ed [`BitStore`]s separated by a line of `' '`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rel = self.relation;
+        let xgs = &self.partition;
+        let mut s = String::new();
+
+        if !self.partition.is_empty() {
+            for r in 0..rel.get_col_count() {
+                for c in 0..xgs[0].indices.len() {
+                    if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
+                        s.push('1')
+                    } else {
+                        s.push('0')
+                    };
+                }
+                for xg in xgs.iter().skip(1) {
+                    if rel.contents[xg.indices[0]].get_bit(r).unwrap() {
+                        s.push_str(" 1")
+                    } else {
+                        s.push_str(" 0")
+                    };
+                    for c in 1..xg.indices.len() {
+                        if rel.contents[xg.indices[c]].get_bit(r).unwrap() {
+                            s.push('1')
+                        } else {
+                            s.push('0')
+                        };
+                    }
+                }
+                s.push('\n')
+            }
+        };
+        write!(f, "{s}")
+    }
+}
+
+/// Represents an *x-group* of [`BitStore`]s that are [`disjoint`](BitStore::is_disjoint()) with all other [`BitStore`]s in the [`BRel`].
+///
+/// Each [`DJGroup`] collects indices in [`BRel`]'s `contents` to [`BitStore`]s that share a relation (`true`) with at least one other member of the [`DJGroup`].
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DJGroup {
+    pub max: BitStore,
+    pub indices: Vec<usize>,
+}
+
+/// Return a new empty [`DJGroup`].
+impl DJGroup {
+    pub fn new() -> DJGroup {
+        Default::default()
+    }
+}
+
+impl Index<usize> for DJGroup {
+    type Output = usize;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.indices[idx]
+    }
+}
+
 /// An `enum` of the two axes of a *binary relation*.
-#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Axis {
     Column,
     #[default] Row,
@@ -108,7 +188,7 @@ impl fmt::Display for Axis {
 }
 
 /// A `struct` to implement *binary relation*s as a bit field.
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BRel {
     /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
     major_axis: Axis,
@@ -182,7 +262,7 @@ impl RelationTrait for BRel {
                     0
                 } else {
                     self.contents[0].get_bit_length()
-                },
+                }
         }
     }
 
@@ -204,23 +284,33 @@ impl RelationTrait for BRel {
                 let mut bits = vec![];
                 for c in self.contents[..].iter() {
                         bits.push(c.get_bit(idx)?)
-                    }
+                };
                 Ok(bits)
-                },
-            Axis::Row => Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?),
+            },
+            Axis::Row =>
+                if idx < self.get_row_count() {
+                    Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?)
+                } else {
+                    Err("out of bounds for BRel")
+                }
         }
     }
 
     fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str> {
         match self.major_axis {
-            Axis::Column => Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?),
+            Axis::Column =>
+                if idx < self.get_col_count() {
+                    Ok(self.contents[idx].get_bits(0..self.contents[idx].get_bit_length())?)
+                } else {
+                    Err("out of bounds for BRel")
+                },
             Axis::Row => {
                 let mut bits = vec![];
                 for c in self.contents[..].iter() {
                         bits.push(c.get_bit(idx)?)
-                    }
+                    };
                 Ok(bits)
-                },
+            }
         }
     }
 
@@ -229,31 +319,161 @@ impl RelationTrait for BRel {
             Axis::Column => {
                 for (i, &v) in row.iter().enumerate() {
                     self.contents[i].set_bit(idx, v)?;
+                };
+                Ok(self)
+            },
+            Axis::Row =>
+                if idx < self.get_row_count() {
+                    self.contents[idx] = BitStore::from(row);
+                    BitStore::normalize(&self.contents);
+                    Ok(self)
+                } else {
+                    Err("out of bounds for BRel")
                 }
-                Ok(self)
-            },
-            Axis::Row => {
-                self.contents[idx] = BitStore::from(row);
-                BitStore::normalize(&self.contents);
-                Ok(self)
-            },
         }
     }
 
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str> {
         match self.major_axis {
+            Axis::Row =>
+                if idx < self.get_col_count() {
+                    self.contents[idx] = BitStore::from(col);
+                    BitStore::normalize(&self.contents);
+                    Ok(self)
+                } else {
+                    Err("out of bounds for BRel")
+                },
             Axis::Column => {
-                self.contents[idx] = BitStore::from(col);
-                BitStore::normalize(&self.contents);
-                Ok(self)
-            },
-            Axis::Row => {
-                for (i, &v) in col.iter().enumerate() {
-                    self.contents[i].set_bit(idx, v)?;
-                }
-                Ok(self)
-            },
+                    for (i, &v) in col.iter().enumerate() {
+                        self.contents[i].set_bit(idx, v)?;
+                    }
+                    Ok(self)
+            }
         }
+    }
+
+    fn get_cell(&self, row: usize, col: usize) -> Result<bool, &'static str> {
+        match self.major_axis {
+            Axis::Column =>
+                if row < self.get_row_count() {
+                    Ok(self.get_col(col)?[row])
+                } else {
+                    Err("out of bounds for BitStore")
+                },
+            Axis::Row =>
+                if col < self.get_col_count() {
+                    Ok(self.get_row(row)?[col])
+                } else {
+                    Err("out of bounds for BitStore")
+                }
+        }
+    }
+
+    fn set_cell(&mut self, row: usize, col: usize, value: bool) -> Result<&mut Self, &'static str> {
+        match self.major_axis {
+            Axis::Column => if col < self.get_col_count() {
+                self.contents[col].set_bit(row, value)?;
+                Ok(self)
+            } else {
+                Err("out of bounds for BRel")
+            },
+            Axis::Row => if row < self.get_row_count() {
+                self.contents[row].set_bit(col, value)?;
+                Ok(self)
+            } else {
+                Err("out of bounds for BRel")
+            }
+        }
+    }
+
+    fn xgroup(&self) -> DJGrouping {
+        // Checks all [`BitStore`]s in `contents` v. all groups:
+        // - for each `contents[i]` first check overlap with all groups `res[j]`
+        // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
+        // -- if no overlaps, then create a new group `res[_]
+        // - repeat checking for remaining `contents[i+1..]`
+        if self.is_empty() {
+            DJGrouping {
+                relation: self,
+                major_axis: todo!(),
+                partition: vec![],
+            }
+        } else {
+            let mut res: Vec<DJGroup> = vec![DJGroup {
+                max: self.contents[0].clone(),
+                indices: vec![0],
+            }];
+            for i in 1..self.contents.len() {
+                let col = &self.contents[i];
+                let mut new_group = true;
+                let mut expanded: Option<usize> = None;
+                for j in 0..res.len() {
+                    match expanded {
+                        // -- haven't yet found an overlapping group res[j] to expand: this one?
+                        None => {
+                            let isdisjnt = res[j].max.is_disjoint(col);
+                            if !isdisjnt {
+                                // expand res[j] and save the index
+                                res[j].indices.push(i);
+                                res[j].max = res[j].max.clone() | (*col).clone();
+                                expanded = Some(j);
+                                new_group = false;
+                            }
+                        }
+                        // -- have expanded group res[idx]: combine it with any other groups?
+                        Some(idx) => {
+                            let isdisjnt = res[idx].max.is_disjoint(&res[j].max);
+                            if !isdisjnt {
+                                // drain this res[j]'s indices
+                                let mut resj_indices: Vec<usize> =
+                                    res[j].indices.drain(..).collect();
+                                // add them to res[idx]'s indices
+                                res[idx].indices.append(&mut resj_indices);
+                                // update res[idx].max
+                                res[idx].max = res[idx].max.clone() | res[j].max.clone();
+                            }
+                        }
+                    }
+                }
+                // -- disjoint from all groups: create a new group for col
+                if new_group {
+                    res.push(DJGroup {
+                        max: col.clone(),
+                        indices: vec![i],
+                    });
+                }
+            }
+            res.sort_unstable_by(|a, b| a.indices.len().cmp(&b.indices.len()));
+            DJGrouping {
+                relation: self,
+                major_axis: todo!(),
+                partition: res,
+            }
+        }
+    }
+
+    fn kappa(&self, max_count: Option<usize>) -> usize {
+        todo!()
+    }
+
+    fn rel_dist_bound(&self, other: &Self) -> usize {
+        todo!()
+    }
+
+    fn match_columns(&self, other: &Self, col_matches: &Vec<usize>) -> Self {
+        todo!()
+    }
+
+    fn weight(&self, other: &Self, col_matches: &Vec<usize>) -> u32 {
+        todo!()
+    }
+
+    fn min_weight(&self, other: &Self) -> u32 {
+        todo!()
+    }
+
+    fn distance(&self, other: &Self) -> u32 {
+        todo!()
     }
 
     // DOESN'T WORK
@@ -279,6 +499,14 @@ impl From<Vec<BitStore>> for BRel {
         BRel {
             major_axis: BRel::default().major_axis,
             contents: BitStore::normalize(&bitstores) }
+    }
+}
+
+impl Index<usize> for BRel {
+    type Output = BitStore;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.contents[index]
     }
 }
 
@@ -415,22 +643,89 @@ impl Sub for BRel {
 /// A trait for a *binary relation*.
 pub trait RelationTrait {
     type MajorAxis;
+
+    /// Create a new, empty *relation*.
     fn new() -> Self;
+
+    /// Return `true` if the *relation* is empty, *i.e.*, an array representation would be zero-length in both [`Axis::Row`] and [`Axis::Column`] dimensions.
     fn is_empty(&self) -> bool;
+
+    /// Return `true` if the *relation* is not empty, *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
+
+    /// Return the length of the [`Axis::Row`] dimension of the *relation*.
     fn get_row_count(&self) -> usize;
+
+    /// Return the length of the [`Axis::Column`] dimension of the *relation*.
     fn get_col_count(&self) -> usize;
+
+    /// Return the [`Axis::Row`] identified by the given `idx`.
     fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+
+    /// Set the [`Axis::Row`] identified by the given `idx` to the given `Vec<bool>` of bits.
     fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str>;
+
+    /// Return the [`Axis::Column`] identified by the given `idx`.
     fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+
+    /// Set the [`Axis::Column`] identified by the given `idx` to the given `Vec<bool>` of bits.
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
-    // fn xgroup(&self) -> XGrouping;
-    // fn kappa(&self, max_count: Option<usize>) -> usize;
-    // fn rel_dist_bound(&self, other: &Relation) -> usize;
-    // fn match_columns(&self, other: &Relation, col_matches: &Vec<usize>) -> Self;
-    // fn weight(&self, other: &Relation, col_matches: &Vec<usize>) -> u32;
-    // fn min_weight(&self, other: &Relation) -> u32;
-    // fn distance(&self, other: &Relation) -> u32;
+
+    /// Get the `bool` value at the given `row` and `col`.
+    fn get_cell(&self, row: usize, col: usize) -> Result<bool, &'static str>;
+
+    /// Get the `bool` value at the given `row` and `col`.
+    fn set_cell(&mut self, row: usize, col: usize, val: bool) -> Result<&mut Self, &'static str>;
+
+    /// Return the [`DJGrouping`] partition of the [`Relation`].
+    ///
+    /// NB: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) [`Relation`] is, in itself "empty", i.e., has no [`DJGroup`]s in it.
+    fn xgroup(&self) -> DJGrouping;
+
+    /// Return the "kappa" value for a [`Relation`].
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn kappa(&self, max_count: Option<usize>) -> usize;
+
+    /// Return the bound on the "Relation metric" for "distance" between two [`Relation`]s.
+    ///
+    /// [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn rel_dist_bound(&self, other: &Self) -> usize;
+
+    /// Return a new [`Relation`] resulting from applying `col_matches` between `self` and `other`.
+    ///
+    /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
+    fn match_columns(&self, other: &Self, col_matches: &Vec<usize>) -> Self;
+
+    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `col_matches`).
+    ///
+    /// Panics if non-empty [`Relation`]s don't have same `row_count`s or `col_matches` exceeds Column counts of `self` and `other`.
+    ///
+    /// Given a function *f* that matches each [`Column`] in one [`Relation`] *r1* to a some [`Column`] in the other [`Relation`] *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] returns the highest row-count of ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn weight(&self, other: &Self, col_matches: &Vec<usize>) -> u32;
+
+    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
+    ///
+    /// Panics if non-empty [`Relation`]s don't have same `row_count`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn min_weight(&self, other: &Self) -> u32;
+
+    /// Return the "distance" between two [`Relation`]s.
+    ///
+    /// Panics if non-empty [`Relation`]s don't have the same `row_count`.
+    ///
+    /// The *distance* is defined as the maximum of the minimum *weight* between the [`Relation`]s in each direction. This is achieved in the direction toward the [`Relation`] with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Example
+    ///
+    fn distance(&self, other: &Self) -> u32;
 }
 
 /// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
@@ -1020,6 +1315,17 @@ impl BitStore {
 
 }
 
+impl Index<usize> for BitStore {
+    type Output = bool;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self.get_bit(index).unwrap() {
+            true => &true,
+            false => &false
+        }
+    }
+}
+
 impl From<Vec<bool>> for BitStore {
     fn from(bools: Vec<bool>) -> Self {
         let mut res = BitStore::new();
@@ -1114,19 +1420,20 @@ impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
 impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
 impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
-impl Not for BitStore {
-    type Output = Self;
-
-    /// Performs the unary [`!!`](std::ops::Not) operations for a [`Face`].
-    fn not(self) -> Self::Output {
-        BitStore {
-            bit_length: self.bit_length,
-            bits: self.bits.iter().map(|x| !x).collect(),
-        }
-    }
-}
-
 macro_rules! impl_bitstore_bit_logic {
+    ( Not $(, $func:tt, $op:tt)? ) => {
+        impl Not for BitStore {
+            type Output = Self;
+
+            /// Performs the unary [`!!`](std::ops::Not) operations for a [`Face`].
+            fn not(self) -> Self::Output {
+                BitStore {
+                    bit_length: self.bit_length,
+                    bits: self.bits.iter().map(|x| !x).collect(),
+                }
+            }
+        }
+    };
     ( $trait:tt, $func:tt, $op:tt ) => {
         impl $trait for BitStore {
             type Output = Self;
@@ -1158,6 +1465,7 @@ macro_rules! impl_bitstore_bit_logic {
         }
     }
 }
+impl_bitstore_bit_logic!(Not, not, !);
 impl_bitstore_bit_logic!(BitAnd, bitand, &);
 impl_bitstore_bit_logic!(BitOr, bitor, |);
 impl_bitstore_bit_logic!(BitXor, bitxor, ^);
@@ -1345,6 +1653,14 @@ mod tests {
     }
 
     #[test]
+    fn bitstore_index_works() {
+        let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        assert_eq!(bs[0], false);
+        assert_eq!(bs[2], true);
+        assert_eq!(bs[10], true);
+    }
+
+    #[test]
     fn bitstore_count_ones_works() {
         let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         assert_eq!(bs.count_ones(), 5);
@@ -1360,7 +1676,7 @@ mod tests {
     }
 
     #[test]
-    fn bitstore_not_works() {
+    fn bitstore_bitnot_works() {
         let v1 = vec![0b00110001u8, 0b01010101u8];
         let not_v1 = vec![!0b00110001u8, !0b01010101u8];
         assert_eq!(!BitStore::from(v1.clone()), BitStore::from(not_v1.clone()));
@@ -1686,6 +2002,14 @@ mod tests {
     }
 
     #[test]
+    fn brel_index_works() {
+        let br = BRel::from(vec![BitStore::from(vec![0b01010101u8]), BitStore::from(vec![0b01010101u8])]);
+        assert_eq!(br[0], BitStore::from(vec![0b01010101u8]));
+        assert_eq!(br[0][0], false);
+        assert_eq!(br[1][1], true);
+    }
+
+    #[test]
     fn brel_binary_works() {
         assert_eq!(format!("{:b}", BRel::from(vec![BitStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
     }
@@ -1888,8 +2212,54 @@ mod tests {
     }
 
     #[test]
+    fn reltrait_brel_get_cell_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let r1 = BRel::from(vec![bs1, bs2]);
+        assert_eq!(r1.get_cell(0, 2), Ok(true), "\nget_cell({}, {})={} fails for: {:b}", 0, 2, true, r1);
+        assert_eq!(r1.get_cell(0, 0), Ok(false), "\nget_cell({}, {})={} fails for: {:b}", 0, 0, false, r1);
+        assert!(r1.get_cell(2, 0).is_err());
+    }
+
+    #[test]
+    fn reltrait_brel_set_cell_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let mut r1 = BRel::from(vec![bs1, bs2]);
+        assert_eq!(r1.set_cell(0, 0, true).unwrap().get_cell(0, 0), Ok(true), "\nset_cell({}, {}, {})={} fails for: {:b}", 0, 0, true, true, r1);
+        assert_eq!(r1.set_cell(1, 4, false).unwrap().get_cell(1, 4), Ok(false), "\nset_cell({}, {}, {})={} fails for: {:b}", 0, 0, false, false, r1);
+        assert!(r1.set_cell(2, 0, true).is_err());
+        assert!(r1.set_cell(0, 30, true).is_err());
+    }
+
+    #[test]
     fn reltrait_brel_xgroup_works() {
-        todo!()
+        let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
+        let mut r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
+        let mut res = r1.xgroup().partition.len();
+        let mut want = 2;
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
+        r1.contents[2] = c2.clone();
+        res = r1.xgroup().partition.len();
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
+        r1.contents[2] = c3.clone();
+        res = r1.xgroup().partition.len();
+        want = 1;
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
     }
 
     #[test]
