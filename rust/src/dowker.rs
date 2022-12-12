@@ -204,6 +204,76 @@ impl IndexMut<usize> for DJGroup {
     }
 }
 
+/// Represents a *function* between *binary relations* as an [`Iterator`] of matches between indices into one their dimensions, *i.e*, into their [`Column`](Axis::Column)s or [`Row`](Axis::Row)s.
+///
+/// Each call to [`next()`](Iterator::next()) returns a new [`Vec`] of length `count1` selected from `0..count2`, with repetition possible. The iterator terminates after `count2.pow(count1)` variations.
+///
+/// Example
+/// ```
+/// use relmetric::Matches;
+///
+/// let mut m = Matches::new(2,2);
+/// assert_eq!(m.next(), Some(vec![0,0]));
+/// assert_eq!(m.next(), Some(vec![1,0]));
+/// assert_eq!(m.next(), Some(vec![0,1]));
+/// assert_eq!(m.next(), Some(vec![1,1]));
+/// assert_eq!(m.next(), None);
+/// ```
+#[derive(Debug)]
+pub struct Matches {
+    /// Pairs source indices with target indices.
+    matches: Vec<usize>,
+    /// Count of indices in source.
+    count1: usize,
+    /// Count of indices in target.
+    count2: usize,
+    /// Iterator's current index.
+    current: usize,
+}
+
+impl Matches {
+    pub fn new(count1: usize, count2: usize) -> Matches {
+        Matches {
+            matches: vec![],
+            count1,
+            count2,
+            current: 0,
+        }
+    }
+}
+
+impl Iterator for Matches {
+    type Item = Vec<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        println!("{:?}", self);
+        if self.matches.is_empty() {
+            self.matches = vec![0; self.count1];
+            self.current = 0;
+            Some(self.matches.clone())
+        } else if self.matches[self.current] + 1 < self.count2 {
+            self.matches[self.current] += 1;
+            Some(self.matches.clone())
+        } else {
+            self.current += 1;
+            while self.current < self.count1 && self.matches[self.current] + 1 == self.count2 {
+                self.current += 1
+            }
+            if self.current == self.count1 {
+                None
+            } else {
+                self.matches[self.current] += 1;
+                for i in 0..self.current {
+                    self.matches[i] = 0
+                }
+                self.matches[0] = 0;
+                self.current = 0;
+                Some(self.matches.clone())
+            }
+        }
+    }
+}
+
 /// An `enum` of the two axes of a *binary relation*.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Axis {
@@ -494,27 +564,224 @@ impl RelationTrait for BRel {
     }
 
     fn kappa(&self, max_count: Option<usize>) -> usize {
-        todo!()
+        // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+        if self.is_empty() {
+            0
+        } else {
+            let xgs = self.djgroup().partition;
+            let mut blockcounts: Vec<usize> = xgs.iter().map(|x| x.indices.len()).collect();
+            blockcounts.sort();
+            let mut bc_sum = 0;
+            let blocksums: Vec<usize> = blockcounts
+                .iter()
+                .map(|x| {
+                    bc_sum += x;
+                    bc_sum
+                })
+                .collect();
+            let cap = match max_count {
+                None => self.contents.len(),
+                Some(n) => self.contents.len().min(n),
+            };
+            let mut m = 0;
+
+            if blocksums[0] <= cap {
+                while m < blocksums.len() && blocksums[m] <= cap {
+                    m += 1
+                }
+            }
+            if blocksums.len() == 1 {
+                0
+            } else if cap >= self.contents.len() || blocksums[m - 1] + blockcounts[m - 1] > cap {
+                blocksums[m - 2]
+            } else {
+                blocksums[m - 1]
+            }
+        }
     }
 
     fn rel_dist_bound(&self, other: &Self) -> usize {
-        todo!()
+        // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
+
+        println!("rel1:\n{:b}\n", self);
+        println!("rel2:\n{:b}\n", other);
+
+        let rel1_count = self.contents.len();
+        let rel2_count = other.contents.len();
+        let delta12 = self.clone() - (*other).clone();
+        let delta21 = other.clone() - (*self).clone();
+
+        println!("delta12:\n{:b}\n", delta12);
+        println!("delta21:\n{:b}\n", delta21);
+
+        let delta12_count = delta12.contents.len();
+        let delta21_count = delta21.contents.len();
+        let kappa12 = delta12.kappa(Some(delta21_count));
+        let kappa21 = delta21.kappa(Some(delta12_count));
+
+        println!(
+            "rel_dist_bound = max({}, {}) - min({} - {} + {}, {} - {} + {})",
+            rel1_count,
+            rel2_count,
+            rel1_count,
+            delta12_count,
+            kappa12,
+            rel2_count,
+            delta12_count,
+            kappa21
+        );
+
+        rel1_count.max(rel2_count)
+            - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
 
-    fn match_columns(&self, other: &Self, col_matches: &Vec<usize>) -> Self {
-        todo!()
+    fn match_indices(&self, other: &Self, matches: &Vec<usize>) -> Self {
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        if self_empty & other_empty {
+            println!("match_indices both empty");
+            self.clone()
+        } else if self_empty {
+            println!("match_indices self_empty");
+            BRel::zero(other.get_row_count(), other.get_col_count(), other.get_major_axis()).match_indices(other, matches)
+        } else if other_empty {
+            println!("match_indices other_empty");
+            self.match_indices(&BRel::zero(self.get_row_count(), self.get_col_count(), self.get_major_axis()), matches)
+        } else {
+            println!("match_indices neither empty");
+            assert!(matches.len() <= self.contents.len(), "BRel::match_indices() Invalid match: match.len() {} > self.contents.len() {}", matches.len(), self.contents.len());
+            assert!(other.contents.len() >= *matches.iter().max().unwrap(), "BRel::match_indices() Invalid match: max matches[..] > self.contents.len() {}", other.contents.len());
+
+            let mut res = self.clone();
+            for (i, _) in matches.iter().enumerate() {
+                // match self.get_major_axis() {
+                //     Axis::Column => res.set_col(i, other.get_col(matches[i]).clone()),
+                //     Axis::Row => res.set_row(i, other.get_row(matches[i])).clone()
+                // }
+                res.contents[i] = other.contents[matches[i]].clone()
+            }
+            res
+        }
     }
 
-    fn weight(&self, other: &Self, col_matches: &Vec<usize>) -> u32 {
-        todo!()
+    fn weight(&self, other: &Self, matches: &Vec<usize>) -> u32 {
+        let self_empty = self.is_empty();
+        let other_empty = other.is_empty();
+        if self_empty & other_empty {
+            println!("weight both empty");
+            0
+        } else if self_empty {
+            let other_len = other.contents.len();
+            println!("weight self_empty");
+            *other
+                .contents
+                .iter()
+                .fold(vec![0_u32; other_len], |mut counts, bs| {
+                    for (i, count) in counts.iter_mut().enumerate().take(other_len) {
+                        // SAFETY: counts.len() = bs.len() => i can't go out of bounds.
+                        if bs.get_bit(i).unwrap() {
+                            *count += 1
+                        }
+                    }
+                    counts
+                })
+                .iter()
+                .max()
+                .unwrap()
+        } else if other_empty {
+            println!("weight other_empty");
+            let self_len = self.contents.len();
+            *self
+                .contents
+                .iter()
+                .fold(vec![0_u32; self_len], |mut counts, bs| {
+                    for (i, count) in counts.iter_mut().enumerate().take(self_len) {
+                        // SAFETY: counts.len() = bs.len() => i can't go out of bounds.
+                        if bs.get_bit(i).unwrap() {
+                            *count += 1
+                        }
+                    }
+                    counts
+                })
+                .iter()
+                .max()
+                .unwrap()
+        } else {
+            let self_len = self.contents.len();
+            let used_count = matches
+                .iter()
+                .fold(vec![0u32; other.contents.len()], |mut acc, m| {
+                    acc[*m] |= 1;
+                    acc
+                })
+                .iter()
+                .sum::<u32>();
+            let penalty = other.contents.len() as u32 - used_count;
+            let image = self.match_indices(other, matches);
+            let bitxor_image = image.clone().bitxor(self.clone());
+            let max_diff = *bitxor_image
+                .contents
+                .iter()
+                .fold(vec![0_u32; self_len], |mut counts, bs| {
+                    for (i, count) in counts.iter_mut().enumerate().take(self_len) {
+                        // SAFETY: counts.len() = bs.len() => i can't go out of bounds.
+                        if bs.get_bit(i).unwrap() {
+                            *count += 1
+                        }
+                    }
+                    counts
+                })
+                .iter()
+                .max()
+                .unwrap();
+            println!(
+                "weight neither empty, penalty:{} max_diff:{}\nimage:\n{:b}\nbitxor_image:\n{:b}",
+                penalty, max_diff, image, bitxor_image
+            );
+            penalty + max_diff
+        }
     }
 
     fn min_weight(&self, other: &Self) -> u32 {
-        todo!()
+        let self_len = self.contents.len();
+        let other_len = other.contents.len();
+
+        if self.is_empty() || other.is_empty() {
+            // weight() will ignore matches
+            self.weight(other, &vec![0])
+        } else {
+            // initialize worst case
+            let mut res = other_len as u32 * other.get_row_count() as u32;
+
+            // check all matches
+            for m in Matches::new(self_len, other_len) {
+                let w = self.weight(other, &m);
+                println!("min_weight:{} with weight:{} for match:{:?}", res, w, m);
+                if w < res {
+                    res = w;
+                }
+            }
+            res
+        }
     }
 
     fn distance(&self, other: &Self) -> u32 {
-        todo!()
+        let from_len = if self.is_empty() {
+            0
+        } else {
+            self.contents.len()
+        };
+        let to_len = if other.is_empty() {
+            0
+        } else {
+            other.contents.len()
+        };
+
+        if from_len <= to_len {
+            self.min_weight(other)
+        } else {
+            other.min_weight(self)
+        }
     }
 
     fn transpose(&self) -> Self {
@@ -741,21 +1008,21 @@ pub trait RelationTrait {
     /// [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     fn rel_dist_bound(&self, other: &Self) -> usize;
 
-    /// Return a new [`Relation`] resulting from applying `col_matches` between `self` and `other`.
+    /// Return a new [`Relation`] resulting from applying `matches` between `self` and `other`.
     ///
-    /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `col_matches` is out of range for either `self` or `other`.
-    fn match_columns(&self, other: &Self, col_matches: &Vec<usize>) -> Self;
+    /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `matches` is out of range for either `self` or `other`.
+    fn match_indices(&self, other: &Self, matches: &Vec<usize>) -> Self;
 
-    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `col_matches`).
+    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `matches`).
     ///
-    /// Panics if non-empty [`Relation`]s don't have same `row_count`s or `col_matches` exceeds Column counts of `self` and `other`.
+    /// Panics if non-empty [`Relation`]s don't have same `row_count`s or `matches` exceeds Column counts of `self` and `other`.
     ///
     /// Given a function *f* that matches each [`Column`] in one [`Relation`] *r1* to a some [`Column`] in the other [`Relation`] *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
     ///
     /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] returns the highest row-count of ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
     ///
     /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn weight(&self, other: &Self, col_matches: &Vec<usize>) -> u32;
+    fn weight(&self, other: &Self, matches: &Vec<usize>) -> u32;
 
     /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
     ///
@@ -1134,9 +1401,9 @@ pub trait Face {
 
 }
 
-/// A type for storing bits in a variable-length [`Vec`] of [`u8`]s.
+/// A type for storing *bits* in a variable-length [`Vec`] of [`u8`]s.
 ///
-/// Maps [`bit_field::BitField`] over a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
+/// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
 //
 // [ ] - TODO: consider implementing [`SliceIndex`](https://doc.rust-lang.org/std/slice/trait.SliceIndex.html) to access bits
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -2375,7 +2642,8 @@ mod tests {
         let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
         let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
         let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
-        let r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]).transpose();
+        let mut r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
+        r1.set_major_axis(&Axis::Column);
         let mut res = r1.djgroup_by(&Axis::Column).partition.len();
         let mut want = 2;
         assert_eq!(
@@ -2402,34 +2670,322 @@ mod tests {
 
     #[test]
     fn reltrait_brel_kappa_works() {
-        todo!()
+        // "R" of Example 10 in "Metric Comparisons".
+        let ex10_r = BRel::from(vec![
+            BitStore::from(vec![0x0u8]),
+            BitStore::from(vec![0x08u8]),
+            BitStore::from(vec![0x0cu8]),
+            BitStore::from(vec![0x0cu8]),
+            BitStore::from(vec![0x02u8]),
+            BitStore::from(vec![0x02u8]),
+            BitStore::from(vec![0x01u8]),
+            BitStore::from(vec![0x01u8]),
+            BitStore::from(vec![0x01u8]),
+            BitStore::from(vec![0x01u8]),
+        ]);
+        // "R3" of Example 12 in "Metric Comparisons".
+        let ex12_r3 = BRel::from(vec![
+            BitStore::from(vec![0b1000u8]),
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1100u8]),
+        ]);
+        // "R4" of Example 13 in "Metric Comparisons".
+        let ex13_r4 = BRel::from(vec![
+            BitStore::from(vec![0b0000u8]),
+            BitStore::from(vec![0b1000u8]),
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1100u8]),
+        ]);
+        assert_eq!(
+            ex12_r3.kappa(Some(5)),
+            0,
+            "Fails Example 12: kappa(R3, N=5) => 0"
+        );
+        assert_eq!(
+            ex13_r4.kappa(Some(5)),
+            1,
+            "Fails Example 13: kappa(R4, N=5) => 1"
+        );
+        assert_eq!(
+            ex10_r.kappa(Some(4)),
+            1,
+            "Fails Example 14: kappa(R, N=4) => 1"
+        );
+        assert_eq!(
+            ex10_r.kappa(Some(5)),
+            3,
+            "Fails Example 15: kappa(R, N=5) => 3"
+        );
     }
 
     #[test]
     fn reltrait_brel_rel_dist_bound_works() {
-        todo!()
+        // "R1" of Example 18 in "Metric Comparisons".
+        let ex18_r1 = BRel::from(vec![
+            BitStore::from(vec![0b10111u8]),
+            BitStore::from(vec![0b01111u8]),
+            BitStore::from(vec![0b10111u8]),
+            BitStore::from(vec![0b11001u8]),
+            BitStore::from(vec![0b00111u8]),
+            BitStore::from(vec![0b00000u8]),
+            BitStore::from(vec![0b10001u8]),
+            BitStore::from(vec![0b11001u8]),
+            BitStore::from(vec![0b01001u8]),
+            BitStore::from(vec![0b11101u8]),
+        ]);
+        // "R2" of Example 18 in "Metric Comparisons".
+        let ex18_r2 = BRel::from(vec![
+            BitStore::from(vec![0b00100u8]),
+            BitStore::from(vec![0b00010u8]),
+            BitStore::from(vec![0b11100u8]),
+            BitStore::from(vec![0b11110u8]),
+            BitStore::from(vec![0b01000u8]),
+            BitStore::from(vec![0b11101u8]),
+            BitStore::from(vec![0b10100u8]),
+            BitStore::from(vec![0b11010u8]),
+            BitStore::from(vec![0b01111u8]),
+            BitStore::from(vec![0b10101u8]),
+        ]);
+        // "R1" of Example 19 in "Metric Comparisons".
+        let ex19_r1 = BRel::from(vec![
+            BitStore::from(vec![0b00000u8]),
+            BitStore::from(vec![0b00101u8]),
+            BitStore::from(vec![0b11000u8]),
+            BitStore::from(vec![0b00100u8]),
+            BitStore::from(vec![0b01000u8]),
+            BitStore::from(vec![0b10000u8]),
+            BitStore::from(vec![0b00101u8]),
+            BitStore::from(vec![0b00000u8]),
+            BitStore::from(vec![0b00100u8]),
+            BitStore::from(vec![0b11000u8]),
+        ]);
+        // "R2" of Example 19 in "Metric Comparisons".
+        let ex19_r2 = BRel::from(vec![
+            BitStore::from(vec![0b00000u8]),
+            BitStore::from(vec![0b00101u8]),
+            BitStore::from(vec![0b11000u8]),
+            BitStore::from(vec![0b01100u8]),
+            BitStore::from(vec![0b01000u8]),
+            BitStore::from(vec![0b10000u8]),
+            BitStore::from(vec![0b00001u8]),
+            BitStore::from(vec![0b00001u8]),
+            BitStore::from(vec![0b00100u8]),
+            BitStore::from(vec![0b10010u8]),
+        ]);
+        assert_eq!(
+            ex18_r1.rel_dist_bound(&ex18_r2),
+            8,
+            "Fails Example 18 (corrected): rel_dist_bound(R1,R2) => 8"
+        );
+        assert_eq!(
+            ex19_r1.rel_dist_bound(&ex19_r2),
+            2,
+            "Fails Example 19:  rel_dist_bound(R1,R2) => 2"
+        );
     }
 
     #[test]
-    fn reltrait_brel_match_columns_works() {
-        todo!()
+    fn reltrait_brel_match_indices_works() {
+        let r1 = BRel::from(vec![
+            BitStore::from(vec![0b1000u8]),
+            BitStore::from(vec![0b1001u8]),
+        ]);
+        let r2 = BRel::from(vec![
+            BitStore::from(vec![0b0000u8]),
+            BitStore::from(vec![0b1000u8]),
+        ]);
+        let matches = vec![1usize, 0usize];
+        let res = r1.match_indices(&r2, &matches);
+        let want = BRel::from(vec![
+            BitStore::from(vec![0b1000u8]),
+            BitStore::from(vec![0b0000u8]),
+        ]);
+        assert_eq!(res, want, "\nRelation::match_indices fails with matches[{:?}] for \n{:b} \n{:b}\nwanted {:b}\ngot    {:b}\n", matches, r1, r2, want, res);
+
+        let ex1_r1 = BRel {
+            major_axis: Axis::Column,
+            contents: vec![BitStore {
+                bit_length: 1,
+                bits: vec![0b1u8],
+            }],
+        };
+        let ex1_r2 = BRel::new();
+        let ex1_matches = vec![0];
+        let ex1_res = ex1_r1.match_indices(&ex1_r2, &ex1_matches);
+        let ex1_want = BRel::zero(1, 1, Axis::Column);
+        assert_eq!(res, want, "\nRelation::match_indices fails Ex 1 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
+
+        let ex2_r1 = BRel::from(vec![
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1010u8]),
+            BitStore::from(vec![0b1011u8]),
+            BitStore::from(vec![0b0011u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = BRel::from(vec![
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1011u8]),
+            BitStore::from(vec![0b0101u8]),
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_matches12 = vec![0, 1, 1, 2];
+        let ex2_matches21 = vec![1, 2, 0];
+        let ex2_res12 = ex2_r1.match_indices(&ex2_r2, &ex2_matches12);
+        let ex2_want12 = BRel::from(vec![
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1011u8]),
+            BitStore::from(vec![0b1011u8]),
+            BitStore::from(vec![0b0101u8]),
+        ]);
+        assert_eq!(ex2_res12, ex2_want12, "\nRelation::match_indices fails Ex 2 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+
+        let ex2_res21 = ex2_r2.match_indices(&ex2_r1, &ex2_matches21);
+        let ex2_want21 = BRel::from(vec![
+            BitStore::from(vec![0b1010u8]),
+            BitStore::from(vec![0b1011u8]),
+            BitStore::from(vec![0b1100u8]),
+        ]);
+        assert_eq!(ex2_res21, ex2_want21, "\nRelation::match_indices fails Ex 2 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
     }
 
     #[test]
     fn reltrait_brel_weight_works() {
-        todo!()
+        let ex1_r1 = BRel {
+            major_axis: Axis::Row,
+            contents: vec![BitStore { bit_length: 1, bits: vec![0b10000000u8] }]
+        };
+        let ex1_r2 = BRel::new();
+        let ex1_matches = vec![0];
+        let ex1_res = ex1_r1.weight(&ex1_r2, &ex1_matches);
+        let ex1_want = 1;
+        assert_eq!(ex1_res, ex1_want, "\nBRel::weight fails Ex 1 with matches[{:?}] for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
+
+        let ex2_r1 = BRel::from(vec![
+            BitStore::from(vec![0b11000000u8]),
+            BitStore::from(vec![0b10100000u8]),
+            BitStore::from(vec![0b10110000u8]),
+            BitStore::from(vec![0b00110000u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = BRel::from(vec![
+            BitStore::from(vec![0b11000000u8]),
+            BitStore::from(vec![0b10110000u8]),
+            BitStore::from(vec![0b01010000u8]),
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_matches12 = vec![0, 1, 1, 2];
+        let ex2_res12 = ex2_r1.weight(&ex2_r2, &ex2_matches12);
+        let ex2_want12 = 1;
+        assert_eq!(ex2_res12, ex2_want12, "\nBRel::weight fails Ex 2 r1->r2 with matches[{:?}] for\nsource:\n{:b}\ntarget:\n{:b}\nwanted:{} got:{}", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
+
+        let ex2_matches21 = vec![1, 2, 0];
+        let ex2_res21 = ex2_r2.weight(&ex2_r1, &ex2_matches21);
+        let ex2_want21 = 2;
+        assert_eq!(ex2_res21, ex2_want21, "\nBRel::weight fails Ex 2 r2->r1 with matches[{:?}] for\nsource:\n{:b}\ntarget:\n{:b}\nwanted:{} got:{}", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
+    }
+
+    #[test]
+    fn match_iterator_works() {
+        let mut m = Matches::new(2, 3);
+        assert_eq!(m.next(), Some(vec![0, 0]));
+        assert_eq!(m.next(), Some(vec![1, 0]));
+        assert_eq!(m.next(), Some(vec![2, 0]));
+        assert_eq!(m.next(), Some(vec![0, 1]));
+        assert_eq!(m.next(), Some(vec![1, 1]));
+        assert_eq!(m.next(), Some(vec![2, 1]));
+        assert_eq!(m.next(), Some(vec![0, 2]));
+        assert_eq!(m.next(), Some(vec![1, 2]));
+        assert_eq!(m.next(), Some(vec![2, 2]));
+        assert_eq!(m.next(), None);
     }
 
     #[test]
     fn reltrait_brel_min_weight_works() {
-        todo!()
+        let ex1_r1 = BRel {
+            major_axis: Axis::Row,
+            contents: vec![BitStore {
+                bit_length: 1,
+                bits: vec![0b10000000u8],
+            }],
+        };
+        let ex1_r2 = BRel::new();
+        let ex1_res = ex1_r1.min_weight(&ex1_r2);
+        let ex1_want = 1;
+        assert_eq!(
+            ex1_res, ex1_want,
+            "\nRelation::min_weight fails Ex 1 for source:\n{:b}\ntarget\n{:b}\nwanted:{} got:{}",
+            ex1_r1, ex1_r2, ex1_want, ex1_res
+        );
+
+        let ex2_r1 = BRel::from(vec![
+            BitStore::from(vec![0b11000000u8]),
+            BitStore::from(vec![0b10100000u8]),
+            BitStore::from(vec![0b10110000u8]),
+            BitStore::from(vec![0b00110000u8]),
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = BRel::from(vec![
+            BitStore::from(vec![0b11000000u8]),
+            BitStore::from(vec![0b10110000u8]),
+            BitStore::from(vec![0b01010000u8]),
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_res12 = ex2_r1.min_weight(&ex2_r2);
+        let ex2_want12 = 1;
+        assert_eq!(
+            ex2_res12, ex2_want12,
+            "\nRelation::min_weight fails Ex 2 r1->r2 for source:\n{:b}\ntarget\n{:b}\nwanted:{} got:{}",
+            ex2_r1, ex2_r2, ex2_want12, ex2_res12
+        );
+
+        let ex2_res21 = ex2_r2.min_weight(&ex2_r1);
+        let ex2_want21 = 2;
+        assert_eq!(
+            ex2_res21, ex2_want21,
+            "\nRelation::min_weight fails Ex 2 r2->r1 for source:\n{:b}\ntarget\n{:b}\nwanted:{} got:{}",
+            ex2_r2, ex2_r1, ex2_want21, ex2_res21
+        );
     }
 
     #[test]
     fn reltrait_brel_distance_works() {
-        todo!()
-    }
+        let ex1_r1 = BRel {
+            major_axis: Axis::Row,
+            contents: vec![BitStore {
+                bit_length: 1,
+                bits: vec![0b10000000u8],
+            }],
+        };
+        let ex1_r2 = BRel::new();
+        let ex1_res = ex1_r1.distance(&ex1_r2);
+        let ex1_want = 1;
+        assert_eq!(
+            ex1_res, ex1_want,
+            "\nRelation::metric fails Ex 1 for source:\n{:b}\ntarget:\n{:b}\nwanted:{} got:{}",
+            ex1_r1, ex1_r2, ex1_want, ex1_res
+        );
 
+        let ex2_r1 = BRel::from(vec![
+            BitStore { bit_length: 4, bits: vec![0b11000000u8] },
+            BitStore { bit_length: 4, bits: vec![0b10100000u8] },
+            BitStore { bit_length: 4, bits: vec![0b10110000u8] },
+            BitStore { bit_length: 4, bits: vec![0b00110000u8] },
+        ]);
+        // ex2_r1.trim_row_count();
+        let ex2_r2 = BRel::from(vec![
+            BitStore { bit_length: 4, bits: vec![0b11000000u8] },
+            BitStore { bit_length: 4, bits: vec![0b10110000u8] },
+            BitStore { bit_length: 4, bits: vec![0b01010000u8] },
+        ]);
+        // ex2_r2.trim_row_count();
+        let ex2_res = ex2_r2.distance(&ex2_r1);
+        let ex2_want = 2;
+        assert_eq!(
+            ex2_res, ex2_want,
+            "\nRelation::metric fails Ex 2 r2->r1 for source:\n{:b}\ntarget:\n{:b}\nwanted:{} got:{}",
+            ex2_r2, ex2_r1, ex2_want, ex2_res
+        );
+    }
 
     #[test]
     fn reltrait_brel_transpose_works() {
