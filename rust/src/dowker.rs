@@ -335,7 +335,7 @@ impl RelationTrait for BRel {
 
     fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str> {
         match self.major_axis {
-            Axis::Row =>
+            Axis::Column =>
                 if idx < self.get_col_count() {
                     self.contents[idx] = BitStore::from(col);
                     BitStore::normalize(&self.contents);
@@ -343,7 +343,7 @@ impl RelationTrait for BRel {
                 } else {
                     Err("out of bounds for BRel")
                 },
-            Axis::Column => {
+            Axis::Row => {
                     for (i, &v) in col.iter().enumerate() {
                         self.contents[i].set_bit(idx, v)?;
                     }
@@ -1259,13 +1259,13 @@ impl BitStore {
         for (idx, &val) in zip(self.valid_range(range)?, values.iter()) {
             let the_int = idx / u8::BITS as usize;
             let the_bit = idx % u8::BITS as usize;
-            print!("set_bits cap:{} bit_len:{} int:{} bit:{} self:{:b}", self.get_capacity(), self.get_bit_length(), the_int, the_bit, self);
+            // print!("set_bits cap:{} bit_len:{} int:{} bit:{} self:{:b}", self.get_capacity(), self.get_bit_length(), the_int, the_bit, self);
             if val {
                 self.bits[the_int] |= ROW_MASK[the_bit];
             } else {
                 self.bits[the_int] &= ! (ROW_MASK[the_bit] as u8);
             }
-            println!("->{:b}", self);
+            // println!("->{:b}", self);
         }
         Ok(self)
     }
@@ -2206,7 +2206,8 @@ mod tests {
         let bs2 = BitStore::from_vertices(vec![4, 8]);
         let bs3 = BitStore::from_vertices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
-        assert_eq!(r1.set_col(0, vec![true, true, true]).unwrap().get_col(0), Ok(vec![true, true, true]));
+        let r2 = r1.clone();
+        assert_eq!(r1.set_col(0, vec![true, true, true]).unwrap().get_col(0), Ok(vec![true, true, true]), "\nset_col({}, {:?}) fails for\n{:b}", 0, vec![true, true, true], r2);
         r1.set_major_axis(&Axis::Column);
         assert_eq!(r1.set_col(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_col(2), bs1.get_bits(0..bs1.get_bit_length()));
     }
