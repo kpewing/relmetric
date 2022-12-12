@@ -9,7 +9,7 @@ use core::iter::zip;
 use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
-use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index};
+use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 
 use itertools::Itertools;
 
@@ -99,48 +99,75 @@ pub trait Dowker {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DJGrouping<'a> {
     relation: &'a BRel,
-    major_axis: Axis,
     pub partition: Vec<DJGroup>,
 }
 
 impl DJGrouping<'_> {
-    /// Return an [`DJGrouping`] for the given [`BRel`] or `None` if the [`BRel`] is [`empty`](BRel::is_empty()).
+    /// Return a [`DJGrouping`] for the given *relation*.
     pub fn new(rel: &BRel) -> DJGrouping {
-        rel.xgroup()
+        rel.djgroup()
     }
 }
 
 impl fmt::Display for DJGrouping<'_> {
-    /// Display the partitioned [`BRel`] as a binary matrix of [`DJGroup`]'ed [`BitStore`]s separated by a line of `' '`.
+    /// Display the partitioned *relation* as a binary matrix of [`DJGroup`]s separated by a lines. The [`DJGroup`]s (and spacer lines) will be horizontal if the `major_axis` is [`Row`](Axis::Row) and vertical if it is [`Column`](Axis::Column).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rel = self.relation;
         let xgs = &self.partition;
         let mut s = String::new();
 
         if !self.partition.is_empty() {
-            for r in 0..rel.get_col_count() {
-                for c in 0..xgs[0].indices.len() {
-                    if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
-                        s.push('1')
-                    } else {
-                        s.push('0')
-                    };
-                }
-                for xg in xgs.iter().skip(1) {
-                    if rel.contents[xg.indices[0]].get_bit(r).unwrap() {
-                        s.push_str(" 1")
-                    } else {
-                        s.push_str(" 0")
-                    };
-                    for c in 1..xg.indices.len() {
-                        if rel.contents[xg.indices[c]].get_bit(r).unwrap() {
-                            s.push('1')
-                        } else {
-                            s.push('0')
+            match rel.get_major_axis() {
+                Axis::Column =>
+                    for r in 0..rel.get_row_count() {
+                        for c in 0..xgs[0].indices.len() {
+                            // if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
+                            if rel.get_cell(r, xgs[0].indices[c]).unwrap() {
+                                s.push('1')
+                            } else {
+                                s.push('0')
+                            };
                         };
-                    }
+                        for xg in xgs.iter().skip(1) {
+                            s.push_str(" | ");
+                            for c in 0..xg.indices.len() {
+                                if rel.get_cell(r, xg.indices[c]).unwrap() {
+                                    s.push('1')
+                                } else {
+                                    s.push('0')
+                                };
+                            }
+                        };
+                        s.push('\n')
+                    },
+                Axis::Row => {
+                    for r in 0..xgs[0].indices.len() {
+                        for c in 0..rel.get_col_count() {
+                            // if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
+                            if rel.get_cell(xgs[0].indices[r], c).unwrap() {
+                                s.push('1')
+                            } else {
+                                s.push('0')
+                            };
+                        };
+                        s.push('\n');
+                    };
+                    for xg in xgs.iter().skip(1) {
+                        s.push_str(&"-".repeat(rel.get_col_count()));
+                        s.push('\n');
+                        for r in 0..xg.indices.len() {
+                            for c in 0..rel.get_col_count() {
+                                // if rel.contents[xg.indices[c]].get_bit(r).unwrap() {
+                                if rel.get_cell(xg.indices[r], c).unwrap() {
+                                    s.push('1')
+                                } else {
+                                    s.push('0')
+                                };
+                            };
+                            s.push('\n');
+                        };
+                    };
                 }
-                s.push('\n')
             }
         };
         write!(f, "{s}")
@@ -166,8 +193,14 @@ impl DJGroup {
 impl Index<usize> for DJGroup {
     type Output = usize;
 
-    fn index(&self, idx: usize) -> &Self::Output {
-        &self.indices[idx]
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.indices[index]
+    }
+}
+
+impl IndexMut<usize> for DJGroup {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.indices[index]
     }
 }
 
@@ -233,7 +266,6 @@ impl BRel {
 }
 
 impl RelationTrait for BRel {
-    type MajorAxis = Axis;
 
     fn new() -> Self {
         Self::new()
@@ -386,7 +418,18 @@ impl RelationTrait for BRel {
         }
     }
 
-    fn xgroup(&self) -> DJGrouping {
+    fn djgroup_by(&self, axis: &Axis) -> DJGrouping {
+        if *axis == self.major_axis {
+            self.djgroup()
+        } else {
+            DJGrouping {
+                relation: self,
+                partition: self.transpose().djgroup().partition
+            }
+        }
+    }
+
+    fn djgroup(&self) -> DJGrouping {
         // Checks all [`BitStore`]s in `contents` v. all groups:
         // - for each `contents[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
@@ -395,7 +438,6 @@ impl RelationTrait for BRel {
         if self.is_empty() {
             DJGrouping {
                 relation: self,
-                major_axis: todo!(),
                 partition: vec![],
             }
         } else {
@@ -404,18 +446,18 @@ impl RelationTrait for BRel {
                 indices: vec![0],
             }];
             for i in 1..self.contents.len() {
-                let col = &self.contents[i];
+                let bs = &self.contents[i];
                 let mut new_group = true;
                 let mut expanded: Option<usize> = None;
                 for j in 0..res.len() {
                     match expanded {
                         // -- haven't yet found an overlapping group res[j] to expand: this one?
                         None => {
-                            let isdisjnt = res[j].max.is_disjoint(col);
+                            let isdisjnt = res[j].max.is_disjoint(bs);
                             if !isdisjnt {
                                 // expand res[j] and save the index
                                 res[j].indices.push(i);
-                                res[j].max = res[j].max.clone() | (*col).clone();
+                                res[j].max = res[j].max.clone() | (*bs).clone();
                                 expanded = Some(j);
                                 new_group = false;
                             }
@@ -435,10 +477,10 @@ impl RelationTrait for BRel {
                         }
                     }
                 }
-                // -- disjoint from all groups: create a new group for col
+                // -- disjoint from all groups: create a new group for bs
                 if new_group {
                     res.push(DJGroup {
-                        max: col.clone(),
+                        max: bs.clone(),
                         indices: vec![i],
                     });
                 }
@@ -446,7 +488,6 @@ impl RelationTrait for BRel {
             res.sort_unstable_by(|a, b| a.indices.len().cmp(&b.indices.len()));
             DJGrouping {
                 relation: self,
-                major_axis: todo!(),
                 partition: res,
             }
         }
@@ -476,22 +517,17 @@ impl RelationTrait for BRel {
         todo!()
     }
 
-    // DOESN'T WORK
-    // fn transpose(&mut self) -> Result<&mut Self, &'static str> {
-    //     println!("\ntranspose self:\n{:b}\n", self);
-    //     let mut new = Self::zero(self.get_col_count(), self.get_row_count(), self.major_axis);
-    //     match self.major_axis {
-    //         Axis::Row => for r in 0..self.get_row_count() {
-    //             new.set_col(r, self.get_row(self.get_row_count() - r - 1)?)?;
-    //         }
-    //         Axis::Column => for c in 0..self.get_col_count() {
-    //             new.set_row(c, self.get_col(self.get_col_count() - c - 1)?)?;
-    //         }
-    //     };
-    //     *self = new;
-    //     println!("\n ->\n{:b}\n", self);
-    //     Ok(self)
-    // }
+    fn transpose(&self) -> Self {
+        let new_row_count = self.get_col_count();
+        let new_col_count = self.get_row_count();
+        let mut new = Self::zero(new_row_count, new_col_count, self.major_axis);
+        for r in 0..new_row_count {
+            for c in 0..new_col_count {
+                new.set_cell(r, c, self.get_cell(c, r).unwrap()).unwrap();
+            }
+        }
+        BRel { major_axis: self.major_axis, contents: new.contents }
+    }
 }
 
 impl From<Vec<BitStore>> for BRel {
@@ -507,6 +543,12 @@ impl Index<usize> for BRel {
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.contents[index]
+    }
+}
+
+impl IndexMut<usize> for BRel {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.contents[index]
     }
 }
 
@@ -642,7 +684,6 @@ impl Sub for BRel {
 
 /// A trait for a *binary relation*.
 pub trait RelationTrait {
-    type MajorAxis;
 
     /// Create a new, empty *relation*.
     fn new() -> Self;
@@ -677,10 +718,18 @@ pub trait RelationTrait {
     /// Get the `bool` value at the given `row` and `col`.
     fn set_cell(&mut self, row: usize, col: usize, val: bool) -> Result<&mut Self, &'static str>;
 
-    /// Return the [`DJGrouping`] partition of the [`Relation`].
+    /// Return the transposed *relation* with the same `major_axis`.
+    fn transpose(&self) -> Self;
+
+    /// Return the [`DJGrouping`] partition of the *binary relation* by its [`Axis`].
     ///
-    /// NB: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) [`Relation`] is, in itself "empty", i.e., has no [`DJGroup`]s in it.
-    fn xgroup(&self) -> DJGrouping;
+    /// **NB**: The [`DJGrouping`] of an [`empty`](RelationTrait::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
+    fn djgroup(&self) -> DJGrouping;
+
+    /// Return the [`DJGrouping`] partition of the *binary relation* by the given [`Axis`].
+    ///
+    /// **NB**: The [`DJGrouping`] of an [`empty`](RelationTrait::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
+    fn djgroup_by(&self, axis: &Axis) -> DJGrouping;
 
     /// Return the "kappa" value for a [`Relation`].
     ///
@@ -2234,12 +2283,70 @@ mod tests {
     }
 
     #[test]
-    fn reltrait_brel_xgroup_works() {
+    fn djgrouping_display_works() {
+        let row_br = BRel::from(vec![
+            BitStore::from(vec![0b0000u8]),
+            BitStore::from(vec![0b1000u8]),
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b1100u8]),
+            BitStore::from(vec![0b0010u8]),
+            BitStore::from(vec![0b0010u8]),
+            BitStore::from(vec![0b0001u8]),
+            BitStore::from(vec![0b0001u8]),
+            BitStore::from(vec![0b0001u8]),
+            BitStore::from(vec![0b0001u8]),
+        ]);
+        let mut col_br = row_br.clone();
+        col_br.set_major_axis(&Axis::Column);
+        let row_dgs = row_br.djgroup();
+        let row_djgrouping = DJGrouping::new(&row_br);
+        let mut res = format!("{}", row_djgrouping);
+        let mut want = r#"00000000
+--------
+00000010
+00000010
+--------
+00001000
+00001100
+00001100
+--------
+00000001
+00000001
+00000001
+00000001
+"#;
+        assert_eq!(
+            res, want,
+            "r:\n{:b}\nrow_djgrouping:\n{}\nrow_dgs:\n{:?}\n",
+            row_br, row_djgrouping, row_dgs
+        );
+        let col_dgs = col_br.djgroup();
+        let col_djgrouping = DJGrouping::new(&col_br);
+        res = format!("{}", col_djgrouping);
+        want = r#"0 | 00 | 000 | 0000
+0 | 00 | 000 | 0000
+0 | 00 | 000 | 0000
+0 | 00 | 000 | 0000
+0 | 00 | 111 | 0000
+0 | 00 | 011 | 0000
+0 | 11 | 000 | 0000
+0 | 00 | 000 | 1111
+"#;
+        assert_eq!(
+            res, want,
+            "r:\n{:b}\ncol_djgrouping:\n{}\ncol_dgs:\n{:?}\n",
+            col_br, col_djgrouping, col_dgs
+        );
+}
+
+
+    #[test]
+    fn reltrait_brel_djgroup_works() {
         let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
         let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
         let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
         let mut r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
-        let mut res = r1.xgroup().partition.len();
+        let mut res = r1.djgroup().partition.len();
         let mut want = 2;
         assert_eq!(
             res, want,
@@ -2247,14 +2354,44 @@ mod tests {
             res, want, r1
         );
         r1.contents[2] = c2.clone();
-        res = r1.xgroup().partition.len();
+        res = r1.djgroup().partition.len();
         assert_eq!(
             res, want,
             "\n\nNumber of DJGroups {} != {} for\n{:?}",
             res, want, r1
         );
         r1.contents[2] = c3.clone();
-        res = r1.xgroup().partition.len();
+        res = r1.djgroup().partition.len();
+        want = 1;
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
+    }
+
+    #[test]
+    fn reltrait_brel_djgroupby_works() {
+        let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
+        let r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]).transpose();
+        let mut res = r1.djgroup_by(&Axis::Column).partition.len();
+        let mut want = 2;
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
+        r1.contents[2] = c2.clone();
+        res = r1.djgroup().partition.len();
+        assert_eq!(
+            res, want,
+            "\n\nNumber of DJGroups {} != {} for\n{:?}",
+            res, want, r1
+        );
+        r1.contents[2] = c3.clone();
+        res = r1.djgroup().partition.len();
         want = 1;
         assert_eq!(
             res, want,
@@ -2294,30 +2431,26 @@ mod tests {
     }
 
 
-    // #[test]
-    // fn reltrait_brel_transpose_works() {
-    //     let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-    //     let bs2 = BitStore::from_vertices(vec![4, 8]);
-    //     let bs3 = BitStore::from_vertices(vec![2, 8]);
-    //     let mut r1 = BRel::from(vec![bs1, bs2, bs3]);
-    //     let bs1_t = BitStore::from_vertices(vec![]);
-    //     let bs2_t = BitStore::from_vertices(vec![]);
-    //     let bs3_t = BitStore::from_vertices(vec![0, 2]);
-    //     let bs4_t = BitStore::from_vertices(vec![]);
-    //     let bs5_t = BitStore::from_vertices(vec![0, 1]);
-    //     let bs6_t = BitStore::from_vertices(vec![]);
-    //     let bs7_t = BitStore::from_vertices(vec![]);
-    //     let bs8_t = BitStore::from_vertices(vec![]);
-    //     let bs9_t = BitStore::from_vertices(vec![0, 1, 2]);
-    //     let mut r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
-    //     let res = r1.transpose().unwrap();
-    //     assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9,3,Axis::Row), "res:{:b}", res);
-    //     assert_eq!(res, &mut r1_t);
-
-    //     res.set_major_axis(&Axis::Column);
-    //     r1_t.set_major_axis(&Axis::Column);
-    //     assert_eq!(res, &r1_t);
-    // }
+    #[test]
+    fn reltrait_brel_transpose_works() {
+        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let r1 = BRel::from(vec![bs1, bs2, bs3]);
+        let bs1_t = BitStore::from_vertices(vec![]);
+        let bs2_t = BitStore::from_vertices(vec![]);
+        let bs3_t = BitStore::from_vertices(vec![0, 2]);
+        let bs4_t = BitStore::from_vertices(vec![]);
+        let bs5_t = BitStore::from_vertices(vec![0, 1]);
+        let bs6_t = BitStore::from_vertices(vec![]);
+        let bs7_t = BitStore::from_vertices(vec![]);
+        let bs8_t = BitStore::from_vertices(vec![]);
+        let bs9_t = BitStore::from_vertices(vec![0, 1, 2]);
+        let r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
+        let res = r1.transpose();
+        assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9, 3, Axis::Row), "\nfrom:\n{:b}\nres:\n{:b}", r1, res);
+        assert_eq!(res, r1_t);
+    }
 
     #[test]
     fn mydowker_new_works() {
