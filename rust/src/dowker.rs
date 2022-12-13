@@ -1,6 +1,10 @@
 /*! # A Module Representing Dowker Complexes
 
-This module creates an abstraction of the [`Dowker Complex`] and various supporting types and traits, including the [`Abstract Simplicial Complex`](AbstractSimplicialComplex), the [`Face`], and the underlying [`BitStore`] trait and default [`BitStore`] struct.
+This module creates an abstraction of the [*Dowker complex*](MyDowker) and various supporting types and traits, including the [`Abstract Simplicial Complex`](AbstractSimplicialComplex), the [`Face`], and the underlying [`BitStore`] trait and default [`BitStore`] struct.
+
+For more about *abstract simplicial complexes* and the *Dowker complex*, see [Definitions 4 and 5, *Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1]
+
+[^1]: [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
 */
 
 use core::fmt;
@@ -10,7 +14,6 @@ use core::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
-
 use itertools::Itertools;
 
 
@@ -84,10 +87,10 @@ pub trait Dowker {
     /// Return `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
     fn is_empty(&self) -> bool;
 
-    /// Return the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *relation*.
+    /// Return the *differential weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *binary relation*.
     fn diff_weight(&self, face: &Self::F) -> usize;
 
-    /// Return the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *relation*.
+    /// Return the *total weight* of the given [`Face`] within the [`MyDowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *binary relation*.
     fn tot_weight(&self, face: &Self::F) -> usize;
 }
 
@@ -103,14 +106,14 @@ pub struct DJGrouping<'a> {
 }
 
 impl DJGrouping<'_> {
-    /// Return a [`DJGrouping`] for the given *relation*.
+    /// Return a [`DJGrouping`] for the given *binary relation*.
     pub fn new(rel: &BRel) -> DJGrouping {
         rel.djgroup()
     }
 }
 
 impl fmt::Display for DJGrouping<'_> {
-    /// Display the partitioned *relation* as a binary matrix of [`DJGroup`]s separated by a lines. The [`DJGroup`]s (and spacer lines) will be horizontal if the `major_axis` is [`Row`](Axis::Row) and vertical if it is [`Column`](Axis::Column).
+    /// Display the partitioned *binary relation* as a binary matrix of [`DJGroup`]s separated by a lines. The [`DJGroup`]s (and spacer lines) will be horizontal if the `major_axis` is [`Row`](Axis::Row) and vertical if it is [`Column`](Axis::Column).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let rel = self.relation;
         let xgs = &self.partition;
@@ -121,8 +124,7 @@ impl fmt::Display for DJGrouping<'_> {
                 Axis::Column =>
                     for r in 0..rel.get_row_count() {
                         for c in 0..xgs[0].indices.len() {
-                            // if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
-                            if rel.get_cell(r, xgs[0].indices[c]).unwrap() {
+                            if rel[xgs[0].indices[c]][r] {
                                 s.push('1')
                             } else {
                                 s.push('0')
@@ -131,7 +133,7 @@ impl fmt::Display for DJGrouping<'_> {
                         for xg in xgs.iter().skip(1) {
                             s.push_str(" | ");
                             for c in 0..xg.indices.len() {
-                                if rel.get_cell(r, xg.indices[c]).unwrap() {
+                                if rel[xg.indices[c]][r] {
                                     s.push('1')
                                 } else {
                                     s.push('0')
@@ -143,8 +145,7 @@ impl fmt::Display for DJGrouping<'_> {
                 Axis::Row => {
                     for r in 0..xgs[0].indices.len() {
                         for c in 0..rel.get_col_count() {
-                            // if rel.contents[xgs[0].indices[c]].get_bit(r).unwrap() {
-                            if rel.get_cell(xgs[0].indices[r], c).unwrap() {
+                            if rel[xgs[0].indices[r]][c] {
                                 s.push('1')
                             } else {
                                 s.push('0')
@@ -157,8 +158,7 @@ impl fmt::Display for DJGrouping<'_> {
                         s.push('\n');
                         for r in 0..xg.indices.len() {
                             for c in 0..rel.get_col_count() {
-                                // if rel.contents[xg.indices[c]].get_bit(r).unwrap() {
-                                if rel.get_cell(xg.indices[r], c).unwrap() {
+                                if rel[xg.indices[r]][c] {
                                     s.push('1')
                                 } else {
                                     s.push('0')
@@ -174,13 +174,13 @@ impl fmt::Display for DJGrouping<'_> {
     }
 }
 
-/// Represents an *x-group* of [`BitStore`]s that are [`disjoint`](BitStore::is_disjoint()) with all other [`BitStore`]s in the [`BRel`].
+/// Represents a *disjoint-group* of [`BitStore`]s that are [`disjoint`](BitStore::is_disjoint()) with all other [`BitStore`]s in the *binary relation*.
 ///
-/// Each [`DJGroup`] collects indices in [`BRel`]'s `contents` to [`BitStore`]s that share a relation (`true`) with at least one other member of the [`DJGroup`].
+/// Each [`DJGroup`] collects indices in the *binary relation's* to [`BitStore`]s that share a relation (`true`) with at least one other member of the [`DJGroup`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DJGroup {
-    pub max: BitStore,
-    pub indices: Vec<usize>,
+    max: BitStore,
+    indices: Vec<usize>,
 }
 
 /// Return a new empty [`DJGroup`].
@@ -290,7 +290,7 @@ impl fmt::Display for Axis {
     }
 }
 
-/// A `struct` to implement *binary relation*s as a bit field.
+/// A `struct` to implement *binary relation*s as a [`Vec`] of [`BitStore`] bit fields.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BRel {
     /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
@@ -322,8 +322,8 @@ impl BRel {
     }
 
     /// Set the `major_axis` to the given [`Axis`].
-    pub fn set_contents(&mut self, contents: &Vec<BitStore>) -> &mut Self {
-        self.contents = contents.clone();
+    pub fn set_contents(&mut self, contents: &[BitStore]) -> &mut Self {
+        self.contents = contents.to_owned();
         self
     }
 
@@ -336,7 +336,6 @@ impl BRel {
 }
 
 impl RelationTrait for BRel {
-
     fn new() -> Self {
         Self::new()
     }
@@ -563,6 +562,14 @@ impl RelationTrait for BRel {
         }
     }
 
+    fn kappa_by(&self, max_count: Option<usize>, axis: &Axis) -> usize {
+        if axis == &self.major_axis {
+            self.kappa(max_count)
+        } else {
+            self.transpose().kappa(max_count)
+        }
+    }
+
     fn kappa(&self, max_count: Option<usize>) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
         if self.is_empty() {
@@ -600,9 +607,16 @@ impl RelationTrait for BRel {
         }
     }
 
+    fn rel_dist_bound_by(&self, other: &Self, axis: &Axis) -> usize {
+        if axis == &self.major_axis {
+            self.rel_dist_bound(other)
+        } else {
+            self.transpose().rel_dist_bound(other)
+        }
+    }
+
     fn rel_dist_bound(&self, other: &Self) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
-
         println!("rel1:\n{:b}\n", self);
         println!("rel2:\n{:b}\n", other);
 
@@ -635,7 +649,15 @@ impl RelationTrait for BRel {
             - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
     }
 
-    fn match_indices(&self, other: &Self, matches: &Vec<usize>) -> Self {
+    fn match_indices_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> Self {
+        if axis == &self.major_axis {
+            self.match_indices(other, matches)
+        } else {
+            self.transpose().match_indices(other, matches)
+        }
+    }
+
+    fn match_indices(&self, other: &Self, matches: &[usize]) -> Self {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
@@ -654,17 +676,21 @@ impl RelationTrait for BRel {
 
             let mut res = self.clone();
             for (i, _) in matches.iter().enumerate() {
-                // match self.get_major_axis() {
-                //     Axis::Column => res.set_col(i, other.get_col(matches[i]).clone()),
-                //     Axis::Row => res.set_row(i, other.get_row(matches[i])).clone()
-                // }
                 res.contents[i] = other.contents[matches[i]].clone()
             }
             res
         }
     }
 
-    fn weight(&self, other: &Self, matches: &Vec<usize>) -> u32 {
+    fn weight_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> u32 {
+        if axis == &self.major_axis {
+            self.weight(other, matches)
+        } else {
+            self.transpose().weight(other, matches)
+        }
+    }
+
+    fn weight(&self, other: &Self, matches: &[usize]) -> u32 {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
@@ -742,13 +768,21 @@ impl RelationTrait for BRel {
         }
     }
 
+    fn min_weight_by(&self, other: &Self, axis: &Axis) -> u32 {
+        if axis == &self.major_axis {
+            self.min_weight(other)
+        } else {
+            self.transpose().min_weight(other)
+        }
+    }
+
     fn min_weight(&self, other: &Self) -> u32 {
         let self_len = self.contents.len();
         let other_len = other.contents.len();
 
         if self.is_empty() || other.is_empty() {
             // weight() will ignore matches
-            self.weight(other, &vec![0])
+            self.weight(other, &[0])
         } else {
             // initialize worst case
             let mut res = other_len as u32 * other.get_row_count() as u32;
@@ -762,6 +796,14 @@ impl RelationTrait for BRel {
                 }
             }
             res
+        }
+    }
+
+    fn distance_by(&self, other: &Self, axis: &Axis) -> u32 {
+        if axis == &self.major_axis {
+            self.distance(other)
+        } else {
+            self.transpose().distance(other)
         }
     }
 
@@ -805,6 +847,33 @@ impl From<Vec<BitStore>> for BRel {
     }
 }
 
+// /// A `struct` to represent a *column* in a *binary relation* as a [`BitStore`].
+// #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub struct Column {
+//     bit_length: usize,
+//     bits: Vec<u8>
+// }
+
+// impl Column {
+//     pub fn new() -> Self {
+//         Default::default()
+//     }
+// }
+
+// impl BitStoreTrait for Column;
+
+// impl From<Vec<Column>> for BRel {
+//     fn from(columns: Vec<Column>) -> Self {
+//         let bs: Vec<BitStore> = columns.into_iter()
+//             .map(|x| x.0)
+//             .collect();
+//         BRel {
+//             major_axis: Axis::Column,
+//             contents: BitStore::normalize(&bs)
+//         }
+//     }
+// }
+
 impl Index<usize> for BRel {
     type Output = BitStore;
 
@@ -828,15 +897,15 @@ impl fmt::Binary for BRel {
         if !self.is_empty() {
             match self.major_axis {
                 Axis::Column => {
-                    write!(s, "{:b}", BitStore::from(self.get_col(0).unwrap())).unwrap();
+                    write!(s, "{:b}", self[0]).unwrap();
                     for c in 1..self.get_col_count() {
-                        write!(s, "\n {:b}", BitStore::from(self.get_col(c).unwrap())).unwrap();
+                        write!(s, "\n {:b}", self[c]).unwrap();
                     }
                 },
                 Axis::Row => {
-                    write!(s, "{:b}", self.contents[0]).unwrap();
+                    write!(s, "{:b}", self[0]).unwrap();
                     for r in 1..self.get_row_count() {
-                        write!(s, "\n {:b}", self.contents[r]).unwrap();
+                        write!(s, "\n {:b}", self[r]).unwrap();
                     }
                 }
             };
@@ -846,6 +915,7 @@ impl fmt::Binary for BRel {
     }
 }
 
+// Use a macro to generate the 4 logical / bit operations on [`BRel`]s.
 macro_rules! impl_brel_bitops {
     ( Not $( , $func:tt, $op:tt )? ) => {
         impl Not for BRel {
@@ -948,23 +1018,22 @@ impl Sub for BRel {
     }
 }
 
-
-/// A trait for a *binary relation*.
+/// A `trait` for a *binary relation*.
 pub trait RelationTrait {
 
-    /// Create a new, empty *relation*.
+    /// Create a new, empty *binary relation*.
     fn new() -> Self;
 
-    /// Return `true` if the *relation* is empty, *i.e.*, an array representation would be zero-length in both [`Axis::Row`] and [`Axis::Column`] dimensions.
+    /// Return `true` if the *binary relation* is empty, *i.e.*, an array representation would be zero-length in both [`Axis::Row`] and [`Axis::Column`] dimensions.
     fn is_empty(&self) -> bool;
 
-    /// Return `true` if the *relation* is not empty, *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
+    /// Return `true` if the *binary relation* is not empty, *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
 
-    /// Return the length of the [`Axis::Row`] dimension of the *relation*.
+    /// Return the length of the [`Axis::Row`] dimension of the *binary relation*.
     fn get_row_count(&self) -> usize;
 
-    /// Return the length of the [`Axis::Column`] dimension of the *relation*.
+    /// Return the length of the [`Axis::Column`] dimension of the *binary relation*.
     fn get_col_count(&self) -> usize;
 
     /// Return the [`Axis::Row`] identified by the given `idx`.
@@ -985,7 +1054,7 @@ pub trait RelationTrait {
     /// Get the `bool` value at the given `row` and `col`.
     fn set_cell(&mut self, row: usize, col: usize, val: bool) -> Result<&mut Self, &'static str>;
 
-    /// Return the transposed *relation* with the same `major_axis`.
+    /// Return the transposed *binary relation* with the same `major_axis`.
     fn transpose(&self) -> Self;
 
     /// Return the [`DJGrouping`] partition of the *binary relation* by its [`Axis`].
@@ -993,49 +1062,90 @@ pub trait RelationTrait {
     /// **NB**: The [`DJGrouping`] of an [`empty`](RelationTrait::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
     fn djgroup(&self) -> DJGrouping;
 
-    /// Return the [`DJGrouping`] partition of the *binary relation* by the given [`Axis`].
+    /// Return the [`DJGrouping`] partition of the *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
     ///
     /// **NB**: The [`DJGrouping`] of an [`empty`](RelationTrait::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
     fn djgroup_by(&self, axis: &Axis) -> DJGrouping;
 
-    /// Return the "kappa" value for a [`Relation`].
+    /// Return the "kappa" value for a *binary relation*.
     ///
     /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     fn kappa(&self, max_count: Option<usize>) -> usize;
 
-    /// Return the bound on the "Relation metric" for "distance" between two [`Relation`]s.
-    ///
-    /// [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn rel_dist_bound(&self, other: &Self) -> usize;
-
-    /// Return a new [`Relation`] resulting from applying `matches` between `self` and `other`.
-    ///
-    /// Panics if both `self` and `other` are non-[`empty`](Relation::is_empty()) but don't have same `row_count`, or if `matches` is out of range for either `self` or `other`.
-    fn match_indices(&self, other: &Self, matches: &Vec<usize>) -> Self;
-
-    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `matches`).
-    ///
-    /// Panics if non-empty [`Relation`]s don't have same `row_count`s or `matches` exceeds Column counts of `self` and `other`.
-    ///
-    /// Given a function *f* that matches each [`Column`] in one [`Relation`] *r1* to a some [`Column`] in the other [`Relation`] *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
-    ///
-    /// So the weight of any function between empty [`Relation`]s is 0, that of any function to an empty [`Relation`] returns the highest row-count of ones in `self`, and similarly for any function from an empty [`Relation`] to any `other`.
+    /// Return the "kappa" value for a *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
     ///
     /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn weight(&self, other: &Self, matches: &Vec<usize>) -> u32;
+    fn kappa_by(&self, max_count: Option<usize>, axis: &Axis) -> usize;
+
+    /// Return an upper bound on the "Relation metric" for "distance" between two *binary relations*.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn rel_dist_bound(&self, other: &Self) -> usize;
+
+    /// Return an upper bound on the "Relation metric" for "distance" between two *binary relations* by the given [`Axis`], using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn rel_dist_bound_by(&self, other: &Self, axis: &Axis) -> usize;
+
+    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other`.
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` or `other`.
+    fn match_indices(&self, other: &Self, matches: &[usize]) -> Self;
+
+    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other` by the given [`Axis`], using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` or `other`.
+    fn match_indices_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> Self;
+
+    /// Return the "weight" of a function from `self` to `other` (represented as `matches`).
+    ///
+    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` and `other`.
+    fn weight(&self, other: &Self, matches: &[usize]) -> u32;
+
+    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `matches`), using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` and `other`.
+    fn weight_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> u32;
 
     /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
-    ///
-    /// Panics if non-empty [`Relation`]s don't have same `row_count`.
     ///
     /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     fn min_weight(&self, other: &Self) -> u32;
 
-    /// Return the "distance" between two [`Relation`]s.
+    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`, using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
     ///
-    /// Panics if non-empty [`Relation`]s don't have the same `row_count`.
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn min_weight_by(&self, other: &Self, axis: &Axis) -> u32;
+
+    /// Return the "distance" between two *binary relations*, using possibly costly [`transpose()`](RelationTrait::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
     ///
-    /// The *distance* is defined as the maximum of the minimum *weight* between the [`Relation`]s in each direction. This is achieved in the direction toward the [`Relation`] with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Example
+    ///
+    fn distance_by(&self, other: &Self, axis: &Axis) -> u32;
+
+    /// Return the "distance" between two *binary relations*.
+    ///
+    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
     ///
     /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
     ///
@@ -1203,7 +1313,7 @@ pub trait AbstractSimplicialComplex {
 
 }
 
-/// A generic trait for *face*s of an [`AbstractSimplicialComplex`] of *vertices* of the associated type [`Vertex`](Face::Vertex).
+/// A generic trait for *faces* of an [`AbstractSimplicialComplex`] of *vertices* of the associated type [`Vertex`](Face::Vertex).
 ///
 /// Each *face* has a [`size`](Face::size()) equal to the count of *vertices* in it. This is equal to the more commonly defined *simplex dimension* + 1. **NB**: The more common definition is extended to permit a [`Face`] to be [`empty`](Face::is_empty()).
 ///
@@ -1255,7 +1365,7 @@ pub trait Face {
 
     /// Return `true` unless this and the given [`Face`] share a *vertex*.
     ///
-    /// **NB**: Unlike the `lua` version, [`empty`](Face::is_empty()) and [`zero`](Face::is_zero()) [`Face`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](Face::is_empty()) and non-[`zero`](Face::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
+    /// **NB**: [`empty`](Face::is_empty()) and [`zero`](Face::is_zero()) [`Face`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](Face::is_empty()) and non-[`zero`](Face::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
     ///
     /// # Default Implementation
     /// - Whether both are `is_empty()` or the given [`Face`] `contains()` any *vertex* of this one.
@@ -1415,7 +1525,6 @@ pub struct BitStore {
 }
 
 impl BitStore {
-
     /// Create a new, default [`BitStore`], which is [`empty`](is_empty()).
     pub fn new() -> Self {
         Default::default()
@@ -1619,10 +1728,16 @@ impl BitStore {
                     a.get_bit_length().cmp(&b.bit_length))
                 .unwrap()
                 .get_bit_length();
-            for idx in 0..res.len() {
-                if res[idx].bit_length < max_bit_length {
-                    res[idx].set_capacity(max_bit_length).unwrap();
-                    res[idx].set_bit_length(max_bit_length).unwrap();
+            // for idx in 0..res.len() {
+            //     if res[idx].bit_length < max_bit_length {
+            //         res[idx].set_capacity(max_bit_length).unwrap();
+            //         res[idx].set_bit_length(max_bit_length).unwrap();
+            //     }
+            // }
+            for bs in &mut res {
+                if bs.bit_length < max_bit_length {
+                    bs.set_capacity(max_bit_length).unwrap();
+                    bs.set_bit_length(max_bit_length).unwrap();
                 }
             }
         }
@@ -1652,6 +1767,7 @@ impl From<Vec<bool>> for BitStore {
     }
 }
 
+// Use a macro to generate the [`From<Vec<_>.`] implementations for [`BitStore`] for all the integer types.
 macro_rules! impl_bitstore_from_vec_int {
     ( $( u8 )? ) => {
         impl From<Vec<u8>> for BitStore {
@@ -1685,6 +1801,7 @@ macro_rules! impl_bitstore_from_vec_int {
 }
 impl_bitstore_from_vec_int!(u8, u16, u32, u64, u128, usize);
 
+// Use a macro to generate the various Display implementations for [`BitStore`].
 macro_rules! impl_bitstore_display {
     ( $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
         impl fmt::$fmt for BitStore {
@@ -1736,6 +1853,7 @@ impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
 impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
 impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
+// Use a macro to generate the 4 logical / bit operations on [`BitStore`]s.
 macro_rules! impl_bitstore_bit_logic {
     ( Not $(, $func:tt, $op:tt)? ) => {
         impl Not for BitStore {
@@ -1785,6 +1903,7 @@ impl_bitstore_bit_logic!(Not, not, !);
 impl_bitstore_bit_logic!(BitAnd, bitand, &);
 impl_bitstore_bit_logic!(BitOr, bitor, |);
 impl_bitstore_bit_logic!(BitXor, bitxor, ^);
+
 
 impl Face for BitStore {
     type Vertex = usize;
@@ -1850,28 +1969,6 @@ impl Face for BitStore {
             self
         }
     }
-
-    // /// Return `true` unless this and the given [`BitStore`] share a `true` bit at some position or an error if they don't have equal `bit_length`s.
-    // ///
-    // /// **NB**: Unlike the `lua` version, [`empty`](BitStore::is_empty()) and [`zero`](BitStore::is_zero()) [`BitStore`]s are *not* disjoint from each other and *are* disjoint from non-[`empty`](BitStore::is_empty()) and non-[`zero`](BitStore::is_zero()) ones. Finding empties disjoint from everything doesn't make sense.
-    // fn is_disjoint(&self, other: &Self) -> Result<bool, &str> {
-    //     if self.is_empty() || self.is_zero() {
-    //         Ok(!(other.is_empty() || other.is_zero()))
-    //     } else if other.is_empty() || other.is_zero() {
-    //         Ok(true)
-    //     } else if self.bit_length != other.bit_length {
-    //         Err("requires non-empty BitStores to have equal bit_length")
-    //     } else {
-    //         Ok(zip(&self.bits, &other.bits).any(|(&a, &b)| a & b > 0))
-    //         // let mut res = true;
-    //         // for (i, elem) in self.bits.iter().enumerate() {
-    //         //     if elem & other.bits[i] > 0 {
-    //         //         res = false
-    //         //     }
-    //         // }
-    //         // Ok(res)
-    //     }
-    // }
 
 }
 
