@@ -20,7 +20,7 @@ use crate::bitstore::*;
 ///
 /// Just wraps the [*generators*](AbstractSimplicialComplex::generators()).
 #[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AbSiCo(Vec<BitStore>);
+pub struct AbSiCo(Vec<BStore>);
 
 impl AbSiCo {
     pub fn new() -> Self
@@ -30,7 +30,7 @@ impl AbSiCo {
 }
 
 impl AbstractSimplicialComplex for AbSiCo {
-    type Face = BitStore;
+    type Face = BStore;
 
     fn generators(&self) -> Vec<Self::Face> {
         self.0.to_vec()
@@ -42,7 +42,7 @@ impl AbstractSimplicialComplex for AbSiCo {
             self
         } else {
             self.0.push(face);
-            self.0 = BitStore::normalize(&self.0);
+            self.0 = BStore::normalize(&self.0);
             self
         }
     }
@@ -59,9 +59,9 @@ impl AbstractSimplicialComplex for AbSiCo {
     }
 }
 
-impl From<Vec<BitStore>> for AbSiCo {
-    fn from(faces: Vec<BitStore>) -> Self {
-        AbSiCo(Face::maximals(&BitStore::normalize(&faces)))
+impl From<Vec<BStore>> for AbSiCo {
+    fn from(faces: Vec<BStore>) -> Self {
+        AbSiCo(Face::maximals(&BStore::normalize(&faces)))
     }
 }
 
@@ -357,7 +357,7 @@ pub trait Face {
 }
 
 
-impl Face for BitStore {
+impl Face for BStore {
     type Vertex = usize;
 
     fn new() -> Self {
@@ -365,7 +365,7 @@ impl Face for BitStore {
     }
 
     fn from_vertices(vertices: Vec<Self::Vertex>) -> Self {
-        BitStore::from_indices(vertices)
+        BStore::from_indices(vertices)
     }
 
     fn vertices(&self) -> Vec<Self::Vertex> {
@@ -420,27 +420,27 @@ mod tests {
 
     #[test]
     fn face_bitstore_from_vertices_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
         // let bs2 = BitStore {bit_length: 9, bits: vec![0b00101000, 0b00000001u8]};
-        let bs2 = BitStore::from(vec![false, false, true, false, true, false, false, false, true]);
+        let bs2 = BStore::from(vec![false, false, true, false, true, false, false, false, true]);
         assert_eq!(bs1, bs2, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}", bs1, bs1, bs2, bs2);
-        assert_eq!(BitStore::from_vertices(vec![2, 4]), BitStore::from(vec![false, false, true, false, true]));
-        assert_eq!(BitStore::from_vertices(vec![]), BitStore::new());
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        assert_eq!(bs3, BitStore::from(vec![false, false, true, false, false, false, false, false, true]));
-        let bs5 = BitStore::from_vertices(vec![5, 7]);
-        assert_eq!(bs5, BitStore::from(vec![false, false, false, false, false, true, false, true]));
+        assert_eq!(BStore::from_vertices(vec![2, 4]), BStore::from(vec![false, false, true, false, true]));
+        assert_eq!(BStore::from_vertices(vec![]), BStore::new());
+        let bs3 = BStore::from_vertices(vec![2, 8]);
+        assert_eq!(bs3, BStore::from(vec![false, false, true, false, false, false, false, false, true]));
+        let bs5 = BStore::from_vertices(vec![5, 7]);
+        assert_eq!(bs5, BStore::from(vec![false, false, false, false, false, true, false, true]));
     }
 
     #[test]
     fn face_bitstore_vertices_works() {
-        assert_eq!(BitStore::from_vertices(vec![2, 4, 8]).vertices(), vec![2, 4, 8]);
-        assert_eq!(BitStore::from_vertices(vec![]).vertices(), vec![]);
+        assert_eq!(BStore::from_vertices(vec![2, 4, 8]).vertices(), vec![2, 4, 8]);
+        assert_eq!(BStore::from_vertices(vec![]).vertices(), vec![]);
     }
 
     #[test]
     fn face_bitstore_contains_works() {
-        let bs = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs = BStore::from_vertices(vec![2, 4, 8]);
         assert!(bs.contains(&4));
         assert!(!bs.contains(&1));
         assert!(!bs.contains(&12));
@@ -449,22 +449,22 @@ mod tests {
 
     #[test]
     fn face_bitstore_is_disjoint_works() {
-        assert!(!BitStore::new().is_disjoint(&BitStore::new()));
-        assert!(BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::new()));
-        assert!(BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::from(vec![0b00101000u8])));
-        assert!(!BitStore::from(vec![0b00000101u8]).is_disjoint(&BitStore::from(vec![0b0000100u8])));
+        assert!(!BStore::new().is_disjoint(&BStore::new()));
+        assert!(BStore::from(vec![0b00000101u8]).is_disjoint(&BStore::new()));
+        assert!(BStore::from(vec![0b00000101u8]).is_disjoint(&BStore::from(vec![0b00101000u8])));
+        assert!(!BStore::from(vec![0b00000101u8]).is_disjoint(&BStore::from(vec![0b0000100u8])));
     }
 
     #[test]
     fn face_bitstore_insert_works() {
-        let mut bs = BitStore::from_vertices(vec![2, 4, 8]);
+        let mut bs = BStore::from_vertices(vec![2, 4, 8]);
         assert!(bs.insert(1).contains(&1));
         assert!(bs.insert(10).contains(&10));
     }
 
     #[test]
     fn face_bitstore_remove_works() {
-        let mut bs = BitStore::from_vertices(vec![2, 4, 8]);
+        let mut bs = BStore::from_vertices(vec![2, 4, 8]);
         assert!(!bs.remove(&1).contains(&1));
         assert!(!bs.remove(&2).contains(&2));
         assert!(!bs.remove(&10).contains(&10));
@@ -472,23 +472,23 @@ mod tests {
 
     #[test]
     fn face_bitstore_size_works() {
-        assert_eq!(BitStore::new().size(), 0);
-        assert_eq!(BitStore::from_vertices(vec![2, 4, 8]).size(), 3);
+        assert_eq!(BStore::new().size(), 0);
+        assert_eq!(BStore::from_vertices(vec![2, 4, 8]).size(), 3);
     }
 
     #[test]
     fn face_bitstore_is_empty_works() {
         // assert!(BitStore::new().is_empty());
-        assert!(Face::is_empty(&BitStore::new()));
-        assert!(!Face::is_empty(&BitStore::from_vertices(vec![2, 4, 8])));
+        assert!(Face::is_empty(&BStore::new()));
+        assert!(!Face::is_empty(&BStore::from_vertices(vec![2, 4, 8])));
     }
 
     #[test]
     fn face_bitstore_is_parent_of_works() {
-        let bs0 = BitStore::new();
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![4]);
+        let bs0 = BStore::new();
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![4]);
         assert!(!bs1.is_parent_of(&bs1));
         assert!(!bs2.is_parent_of(&bs1));
         assert!(bs1.is_parent_of(&bs2));
@@ -498,10 +498,10 @@ mod tests {
 
     #[test]
     fn face_bitstore_is_child_of_works() {
-        let bs0 = BitStore::new();
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![4]);
+        let bs0 = BStore::new();
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![4]);
         assert!(!bs1.is_child_of(&bs1));
         assert!(bs2.is_child_of(&bs1));
         assert!(!bs1.is_child_of(&bs2));
@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn face_bitstore_children_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
         let res = bs1.children();
         assert_eq!(res.len(), 3);
         assert_eq!(res[0].size(), 2);
@@ -522,9 +522,9 @@ mod tests {
 
     #[test]
     fn face_bitstore_is_ancestor_of_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 4]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 4]);
         assert!(bs1.is_ancestor_of(&bs2));
         assert!(bs1.is_ancestor_of(&bs3));
         assert!(!bs2.is_ancestor_of(&bs1));
@@ -532,22 +532,22 @@ mod tests {
 
     #[test]
     fn face_bitstore_is_descendant_of_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
         assert!(!bs1.is_descendant_of(&bs2));
         assert!(bs2.is_descendant_of(&bs1));
     }
 
     #[test]
     fn face_bitstore_descendants_works() {
-        let bs0 = BitStore::from_vertices(vec![]);
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let bs4 = BitStore::from_vertices(vec![2, 4]);
-        let bs5 = BitStore::from_vertices(vec![2]);
-        let bs6 = BitStore::from_vertices(vec![4]);
-        let bs7 = BitStore::from_vertices(vec![8]);
+        let bs0 = BStore::from_vertices(vec![]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
+        let bs4 = BStore::from_vertices(vec![2, 4]);
+        let bs5 = BStore::from_vertices(vec![2]);
+        let bs6 = BStore::from_vertices(vec![4]);
+        let bs7 = BStore::from_vertices(vec![8]);
         let mut res = bs1.descendants();
         res.sort();
         let mut want = [bs0, bs2, bs3, bs4, bs5, bs6, bs7];
@@ -557,10 +557,10 @@ mod tests {
 
     #[test]
     fn face_bitstore_maximals_works() {
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs5 = BitStore::from_vertices(vec![2]);
-        let bs6 = BitStore::from_vertices(vec![4]);
-        let bs7 = BitStore::from_vertices(vec![8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs5 = BStore::from_vertices(vec![2]);
+        let bs6 = BStore::from_vertices(vec![4]);
+        let bs7 = BStore::from_vertices(vec![8]);
         let v1 = vec![bs2.clone(), bs5.clone(), bs6.clone(), bs7.clone()];
         let want = vec![bs2.clone(), bs5.clone()];
         assert_eq!(Face::maximals(&v1), want);
@@ -568,30 +568,30 @@ mod tests {
 
     #[test]
     fn face_bitstore_closure_works() {
-        let bs0 = BitStore::new();
+        let bs0 = BStore::new();
         // let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         // let bs4 = BitStore::from_vertices(vec![2, 4]);
-        let bs5 = BitStore::from_vertices(vec![2]);
-        let bs6 = BitStore::from_vertices(vec![4]);
-        let bs7 = BitStore::from_vertices(vec![8]);
+        let bs5 = BStore::from_vertices(vec![2]);
+        let bs6 = BStore::from_vertices(vec![4]);
+        let bs7 = BStore::from_vertices(vec![8]);
         let v1 = vec![bs2.clone(), bs3.clone()];
-        let res = sorted(Face::closure(&v1)).collect::<Vec<BitStore>>();
-        let want = sorted(vec![bs0.clone(), bs2.clone(), bs3.clone(), bs5.clone(), bs6.clone(), bs7.clone()]).collect::<Vec<BitStore>>();
+        let res = sorted(Face::closure(&v1)).collect::<Vec<BStore>>();
+        let want = sorted(vec![bs0.clone(), bs2.clone(), bs3.clone(), bs5.clone(), bs6.clone(), bs7.clone()]).collect::<Vec<BStore>>();
         assert_eq!(res, want);
     }
 
     #[test]
     fn asc_from_and_faces_work() {
-        let bs0 = BitStore::new();
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let bs4 = BitStore::from_vertices(vec![2, 4]);
-        let bs5 = BitStore::from_vertices(vec![2]);
-        let bs6 = BitStore::from_vertices(vec![4]);
-        let bs7 = BitStore::from_vertices(vec![8]);
+        let bs0 = BStore::new();
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
+        let bs4 = BStore::from_vertices(vec![2, 4]);
+        let bs5 = BStore::from_vertices(vec![2]);
+        let bs6 = BStore::from_vertices(vec![4]);
+        let bs7 = BStore::from_vertices(vec![8]);
         let asc1 = AbSiCo::from(vec![bs2.clone(), bs1.clone(), bs3.clone()]);
         // asc1.sort();
         let mut asc_vec = vec![bs3, bs2, bs4, bs1, bs5, bs6, bs7];
@@ -605,20 +605,20 @@ mod tests {
 
     #[test]
     fn asc_vertices_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert_eq!(asc1.vertices(), vec![2, 4, 8]);
     }
 
     #[test]
     fn asc_contains_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let bs4 = BitStore::from_vertices(vec![2, 4]);
-        let bs5 = BitStore::from_vertices(vec![5, 7]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
+        let bs4 = BStore::from_vertices(vec![2, 4]);
+        let bs5 = BStore::from_vertices(vec![5, 7]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(asc1.contains(&bs1));
         assert!(asc1.contains(&bs2));
@@ -629,10 +629,10 @@ mod tests {
 
     #[test]
     fn asc_insert_face_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
-        let bs4 = BitStore::from_vertices(vec![2, 4]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
+        let bs4 = BStore::from_vertices(vec![2, 4]);
         let mut asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone()]);
         asc1.insert_face(bs3.clone());
         assert!(asc1.contains(&bs3));
@@ -642,9 +642,9 @@ mod tests {
 
     #[test]
     fn asc_remove_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let mut asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         asc1.remove_face(bs3.clone());
         assert!(!asc1.contains(&bs3));
@@ -652,18 +652,18 @@ mod tests {
 
     #[test]
     fn asc_size_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert_eq!(asc1.size(), 3)
     }
 
     #[test]
     fn asc_is_empty_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(!asc1.is_empty());
         assert!(AbSiCo::from(vec![]).is_empty());
@@ -671,9 +671,9 @@ mod tests {
 
     #[test]
     fn asc_is_maximal_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         assert!(!asc1.is_maximal(&bs3), "not is_maximal({:b}) fails with generators {:?}", bs3, asc1.generators());
         assert!(asc1.is_maximal(&bs1), "is_maximal({:b}) fails with generators {:?}", bs1, asc1.generators());
@@ -681,9 +681,9 @@ mod tests {
 
     #[test]
     fn asc_generators_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
-        let bs3 = BitStore::from_vertices(vec![2, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
+        let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
         let res = asc1.generators().sort();
         let want = vec![bs1.clone(), bs2.clone(), bs3.clone()].sort();

@@ -17,20 +17,20 @@ use std::ops::{Not, BitAnd, BitOr, BitXor, Index};
 ///
 /// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BitStore {
+pub struct BStore {
     /// Count of bits represented.
     bit_length: usize,
     /// Container for the bits being represented.
     bits: Vec<u8>,
 }
 
-impl BitStore {
+impl BStore {
     pub fn new() -> Self {
         Default::default()
     }
 }
 
-impl BitStoreTrait for BitStore {
+impl BitStore for BStore {
 
     fn new() -> Self {
         Self::new()
@@ -38,17 +38,17 @@ impl BitStoreTrait for BitStore {
 
     fn zero(bit_length: usize) -> Self {
         if bit_length == 0 {
-            BitStore {
+            BStore {
                 bit_length,
                 bits: vec![]
             }
         } else if bit_length % u8::BITS as usize > 0 {
-            BitStore {
+            BStore {
                 bit_length,
                 bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
             }
         } else {
-            BitStore {
+            BStore {
                 bit_length,
                 bits: vec![0u8; bit_length / u8::BITS as usize]
             }
@@ -161,12 +161,12 @@ impl BitStoreTrait for BitStore {
 
 }
 
-
-pub trait BitStoreTrait {
-    /// Create a new, default [`BitStoreTrait`], which is empty.
+/// A `trait` for a *bit store*.
+pub trait BitStore {
+    /// Create a new, empty *bit store*.
     fn new() -> Self;
 
-    /// Create a [`BitStoreTrait`] of given `bit_length` with bits all `false` (*i.e.*, "zero").
+    /// Create a *bit store* of given `bit_length` with bits all `false` (*i.e.*, a "zero" *bit store*).
     fn zero(bit_length: usize) -> Self
     where
         Self: Sized
@@ -178,12 +178,12 @@ pub trait BitStoreTrait {
         res
     }
 
-    /// Create a [`BitStoreTrait`] with `true` bits at given indices.
+    /// Create a *bit store* with `true` bits at given indices.
     fn from_indices(bits: Vec<usize>) -> Self
     where
         Self: Sized
     {
-        let mut res = BitStoreTrait::new();
+        let mut res = BitStore::new();
         match bits.iter().max() {
             None => res,
             Some(&n) => {
@@ -197,12 +197,12 @@ pub trait BitStoreTrait {
         }
     }
 
-    /// Return `true` if the [`BitStoreTrait`] is empty, *i.e.*, the `bit_length` == 0.
+    /// Return `true` if the *bit store* is empty, *i.e.*, the `bit_length` == 0.
     fn is_empty(&self) -> bool {
         self.get_bit_length() == 0
     }
 
-    /// Return `true` if the [`BitStoreTrait`] is zero, *i.e.*, the `bit_length` > 0 and all `bits` are `false`.
+    /// Return `true` if the *bit store* is zero, *i.e.*, the `bit_length` > 0 and all `bits` are `false`.
     fn is_zero(&self) -> bool {
         self.get_bit_length() > 0 && self.count_ones() == 0
     }
@@ -212,12 +212,12 @@ pub trait BitStoreTrait {
     /// **NB**: This may be less than the `capacity`.
     fn get_bit_length(&self) -> usize;
 
-    /// Return the [`BitStoreTrait`] with the given [`bit_length`](BitStoreTrait::bit_length) or an "out of bounds" `Err`.
+    /// Return the *bit store* with the given [`bit_length`](BitStoreTrait::bit_length) or an "out of bounds" `Err`.
     ///
     /// The `bit_length` **must not** exceed the `capacity`. To avoid possible `Err`, first use [`set_capacity()](BitStore::set_capacity()).
     fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str>;
 
-    /// Return the *capacity* of the [`BitStoreTrait`] in bits, which is the number of bits that *can* be represented.
+    /// Return the *capacity* of the *bit store* in bits, which is the number of bits that *can* be represented.
     fn get_capacity(&self) -> usize;
 
     /// Return the `BitStoreTrait` with the given `capacity`, growing it if needed without increasing the [`bit_length`](BitStore::get_bit_length()), or an "out of bounds" `Err`.
@@ -225,7 +225,7 @@ pub trait BitStoreTrait {
     ///  This **must** equal or exceed the [`bit_length`](BitStore::get_bit_length()). To avoid possible `Err`, before increasing the `bit_length`, first use [`set_capacity()](BitStore::set_capacity()).
     fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str>;
 
-    /// Return a validated [`Range`] into the [`BitStoreTrait`] or an "out of bounds" `Err`.
+    /// Return a validated [`Range`] into the *bit store* or an "out of bounds" `Err`.
     fn valid_range<T: RangeBounds<usize>>(&self, range: T) -> Result<Range<usize>, &'static str> {
         let start = match range.start_bound() {
             Bound::Excluded(&value) => value + 1,
@@ -252,15 +252,15 @@ pub trait BitStoreTrait {
         self.get_bits(idx..(idx + 1)).map(|x| x[0])
     }
 
-    // Return the `BitStoreTrait` with the given range of bits set to the given `bool` values, or an "out of bounds" `Err`.
+    // Return the *bit store* with the given range of bits set to the given `bool` values, or an "out of bounds" `Err`.
     fn set_bits<T: RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str>;
 
-    // Return the `BitStoreTrait` with the given bit set to the given `bool` value, or an "out of bounds" `Err`.
+    // Return the *bit store* with the given bit set to the given `bool` value, or an "out of bounds" `Err`.
     fn set_bit(&mut self, idx: usize, value: bool) -> Result<&mut Self, &'static str> {
         self.set_bits(idx..(idx + 1), vec![value])
     }
 
-    /// Return the count of `true` bits in the `BitStoreTrait`.
+    /// Return the count of `true` bits in the *bit store*.
     fn count_ones(&self) -> usize {
         self.get_bits(0..self.get_bit_length())
             .unwrap()
@@ -269,7 +269,7 @@ pub trait BitStoreTrait {
             .count()
     }
 
-    /// Return the given `Vec` of `BitStoreTrait`s *normalized* to have the same `bit_length` and `capacity()`.
+    /// Return the given `Vec` of *bit store*s *normalized* to have the same `bit_length` and `capacity()`.
     fn normalize(bitstores: &[Self]) -> Vec<Self>
     where
         Self: Sized + Clone
@@ -295,7 +295,7 @@ pub trait BitStoreTrait {
 
 }
 
-impl Index<usize> for BitStore {
+impl Index<usize> for BStore {
     type Output = bool;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -306,9 +306,9 @@ impl Index<usize> for BitStore {
     }
 }
 
-impl From<Vec<bool>> for BitStore {
+impl From<Vec<bool>> for BStore {
     fn from(bools: Vec<bool>) -> Self {
-        let mut res = BitStore::new();
+        let mut res = BStore::new();
         res.set_capacity(bools.len()).unwrap();
         res.set_bit_length(bools.len()).unwrap();
         res.set_bits(0..bools.len(), bools).unwrap();
@@ -316,12 +316,12 @@ impl From<Vec<bool>> for BitStore {
     }
 }
 
-// Use a macro to generate the [`From<Vec<_>.`] implementations for [`BitStore`] for all the integer types.
+// Use a macro to generate the [`From<Vec<_>.`] implementations for [`BStore`] for all the integer types.
 macro_rules! impl_bitstore_from_vec_int {
     ( $( u8 )? ) => {
-        impl From<Vec<u8>> for BitStore {
+        impl From<Vec<u8>> for BStore {
             fn from(ints: Vec<u8>) -> Self {
-                BitStore {
+                BStore {
                     bit_length: ints.len() * u8::BITS as usize,
                     bits: ints,
                 }
@@ -330,9 +330,9 @@ macro_rules! impl_bitstore_from_vec_int {
     };
     ( $( $x:ty ),+ ) => {
         $(
-            impl From<Vec<$x>> for BitStore {
+            impl From<Vec<$x>> for BStore {
                 fn from(ints: Vec<$x>) -> Self {
-                    BitStore {
+                    BStore {
                         bit_length: ints.len() * <$x>::BITS as usize,
                         bits: ints
                             .iter()
@@ -350,11 +350,11 @@ macro_rules! impl_bitstore_from_vec_int {
 }
 impl_bitstore_from_vec_int!(u8, u16, u32, u64, u128, usize);
 
-// Use a macro to generate the various Display implementations for [`BitStore`].
+// Use a macro to generate the various Display implementations for [`BStore`].
 macro_rules! impl_bitstore_display {
     ( $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
-        impl fmt::$fmt for BitStore {
-            /// Show a big-endian binary representation of the [`BitStore`] on one line.
+        impl fmt::$fmt for BStore {
+            /// Show a big-endian binary representation of the [`BStore`] on one line.
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let whole_ints = self.bit_length / u8::BITS as usize;
                 let rest_bits = self.bit_length % u8::BITS as usize;
@@ -402,15 +402,15 @@ impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
 impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
 impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
-// Use a macro to generate the 4 logical / bit operations on [`BitStore`]s.
+// Use a macro to generate the 4 logical / bit operations on [`BStore`]s.
 macro_rules! impl_bitstore_bit_logic {
     ( Not $(, $func:tt, $op:tt)? ) => {
-        impl Not for BitStore {
+        impl Not for BStore {
             type Output = Self;
 
-            /// Performs the unary [`!!`](std::ops::Not) operations for a [`BitStore`].
+            /// Performs the unary [`!!`](std::ops::Not) operations for a [`BStore`].
             fn not(self) -> Self::Output {
-                BitStore {
+                BStore {
                     bit_length: self.bit_length,
                     bits: self.bits.iter().map(|x| !x).collect(),
                 }
@@ -418,12 +418,12 @@ macro_rules! impl_bitstore_bit_logic {
         }
     };
     ( $trait:tt, $func:tt, $op:tt ) => {
-        impl $trait for BitStore {
+        impl $trait for BStore {
             type Output = Self;
 
-            /// Performs the [`&`](std::ops::$trait::$func) operation for two [`BitStore`]s of same `bit_length`.
+            /// Performs the [`&`](std::ops::$trait::$func) operation for two [`BStore`]s of same `bit_length`.
             ///
-            /// Panics if the two [`BitStore`]s don't have the same `bit_length`.
+            /// Panics if the two [`BStore`]s don't have the same `bit_length`.
             fn $func(self, rhs: Self) -> Self::Output {
                 if self.is_empty() {
                     rhs
@@ -432,12 +432,12 @@ macro_rules! impl_bitstore_bit_logic {
                 } else {
                     assert!(
                         self.bit_length == rhs.bit_length,
-                        "BitStore::$func requires non-empty BitStores to have equal bit_length but: {} != {}",
+                        "BStore::$func requires non-empty BStores to have equal bit_length but: {} != {}",
                         self.bit_length,
                         rhs.bit_length
                     );
-                    assert!(self.bits.len() == rhs.bits.len(), "BitStore::$func requires non-empty BitStores to have equal length bit fields but: {} != {}", self.bits.len(), rhs.bits.len());
-                    BitStore {
+                    assert!(self.bits.len() == rhs.bits.len(), "BStore::$func requires non-empty BStores to have equal length bit fields but: {} != {}", self.bits.len(), rhs.bits.len());
+                    BStore {
                         bit_length: self.bit_length,
                         bits: zip(self.bits, rhs.bits)
                             .map(|(s, r)| s $op r)
@@ -462,69 +462,69 @@ mod tests {
 
     #[test]
     fn bitstore_new_works() {
-        assert_eq!(BitStore::new(), BitStore { bit_length: 0, bits: vec![] });
+        assert_eq!(BStore::new(), BStore { bit_length: 0, bits: vec![] });
     }
 
     #[test]
     fn bitstore_zero_works() {
-        assert_eq!(BitStore::zero(9), BitStore { bit_length: 9, bits: vec![0u8; 2]});
+        assert_eq!(BStore::zero(9), BStore { bit_length: 9, bits: vec![0u8; 2]});
     }
 
     #[test]
     fn bitstore_from_bits_works() {
-        assert_eq!(BitStore::from_indices(vec![2, 4, 8]), BitStore::from(vec![false, false, true, false, true, false, false, false, true]));
+        assert_eq!(BStore::from_indices(vec![2, 4, 8]), BStore::from(vec![false, false, true, false, true, false, false, false, true]));
     }
 
     #[test]
     fn bitstore_is_empty_works() {
-        assert!(BitStore::new().is_empty());
-        assert!(!BitStore::zero(9).is_empty());
-        assert!(!BitStore { bit_length: 9, bits: vec![0u8, 1u8] }.is_empty());
+        assert!(BStore::new().is_empty());
+        assert!(!BStore::zero(9).is_empty());
+        assert!(!BStore { bit_length: 9, bits: vec![0u8, 1u8] }.is_empty());
     }
 
     #[test]
     fn bitstore_is_zero_works() {
-        assert!(BitStore::zero(9).is_zero());
-        assert!(!BitStore::new().is_zero());
-        assert_eq!(!BitStore { bit_length: 6, bits: vec![0b00010000u8] }.is_zero(), true, "{:b}", BitStore { bit_length: 6, bits: vec![0b00010000u8] });
+        assert!(BStore::zero(9).is_zero());
+        assert!(!BStore::new().is_zero());
+        assert_eq!(!BStore { bit_length: 6, bits: vec![0b00010000u8] }.is_zero(), true, "{:b}", BStore { bit_length: 6, bits: vec![0b00010000u8] });
     }
 
     #[test]
     fn bitstore_from_vecbool_works() {
-        assert_eq!(BitStore::from(vec![false, false, false, false, false, false, false, true, true]), BitStore { bit_length: 9, bits: vec![0b00000001u8, 0b10000000u8]});
+        assert_eq!(BStore::from(vec![false, false, false, false, false, false, false, true, true]), BStore { bit_length: 9, bits: vec![0b00000001u8, 0b10000000u8]});
     }
 
     #[test]
     fn bitstore_from_vecint_works() {
         assert_eq!(
-            BitStore::from(vec![0xff_usize]),
-            BitStore { bit_length: 64, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 255] }
+            BStore::from(vec![0xff_usize]),
+            BStore { bit_length: 64, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 255] }
         );
         assert_eq!(
-            BitStore::from(vec![0x0_u8, 0xff]),
-            BitStore { bit_length: 16, bits: vec![0u8, 255] }
+            BStore::from(vec![0x0_u8, 0xff]),
+            BStore { bit_length: 16, bits: vec![0u8, 255] }
         );
         assert_eq!(
-            BitStore::from(vec![0x0_u16, 0xff]),
-            BitStore { bit_length: 32, bits: vec![0u8, 0, 0, 255] }
+            BStore::from(vec![0x0_u16, 0xff]),
+            BStore { bit_length: 32, bits: vec![0u8, 0, 0, 255] }
         );
         assert_eq!(
-            BitStore::from(vec![0x0_u32, 0xff]),
-            BitStore { bit_length: 64, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 255] }
+            BStore::from(vec![0x0_u32, 0xff]),
+            BStore { bit_length: 64, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 255] }
         );
         assert_eq!(
-            BitStore::from(vec![0x0_u64, 0xff]),
-            BitStore { bit_length: 128, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255] }
+            BStore::from(vec![0x0_u64, 0xff]),
+            BStore { bit_length: 128, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255] }
         );
         assert_eq!(
-            BitStore::from(vec![0x0_u128, 0xff]),
-            BitStore { bit_length: 256, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255] }
+            BStore::from(vec![0x0_u128, 0xff]),
+            BStore { bit_length: 256, bits: vec![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255] }
         );
     }
 
     #[test]
     fn bitstore_getrs_setrs_work() {
-        let mut bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        let mut bs = BStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         assert_eq!(bs.get_bit_length(), 14);
         assert_eq!(bs.get_capacity(), 16);
         assert!(bs.set_bit_length(15).is_ok());
@@ -536,7 +536,7 @@ mod tests {
         assert_eq!(bs.get_capacity(), 24);
         assert_eq!(bs.get_bit_length(), 15);
 
-        assert_eq!(BitStore::from(vec![0b01010101u8]).get_bits(0..8), Ok(vec![false, true, false, true, false, true, false, true]));
+        assert_eq!(BStore::from(vec![0b01010101u8]).get_bits(0..8), Ok(vec![false, true, false, true, false, true, false, true]));
         assert_eq!(bs.get_bits(0..15), Ok(vec![false, false, true, true, false, false, false, true, false, false, true, false, false, true, false]), "for {:?}", bs);
         assert_eq!(bs.get_bit(2), Ok(true));
         assert_eq!(bs.get_bits(2..4), Ok(vec![true, true]));
@@ -551,7 +551,7 @@ mod tests {
 
     #[test]
     fn bitstore_index_works() {
-        let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        let bs = BStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         assert_eq!(bs[0], false);
         assert_eq!(bs[2], true);
         assert_eq!(bs[10], true);
@@ -559,45 +559,45 @@ mod tests {
 
     #[test]
     fn bitstore_count_ones_works() {
-        let bs = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        let bs = BStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         assert_eq!(bs.count_ones(), 5);
-        assert_eq!(BitStore::from(vec![0b01010101u8]).count_ones(), 4, "count_ones for {:?}", BitStore::from(vec![0b01010101u8]));
+        assert_eq!(BStore::from(vec![0b01010101u8]).count_ones(), 4, "count_ones for {:?}", BStore::from(vec![0b01010101u8]));
     }
 
     #[test]
     fn bitstore_normalize_works() {
-        let bs1 = BitStore::from(vec![0b00110001u8]);
-        let bs2 = BitStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
+        let bs1 = BStore::from(vec![0b00110001u8]);
+        let bs2 = BStore {bit_length: 14, bits: vec![0b00110001u8, 0b00100101u8]};
         let bs_slice = &vec![bs1.clone(), bs2.clone()][..];
-        assert_eq!(BitStore::normalize(bs_slice), vec![BitStore {bit_length: 14, bits: vec![0b00110001u8, 0]}, bs2]);
+        assert_eq!(BStore::normalize(bs_slice), vec![BStore {bit_length: 14, bits: vec![0b00110001u8, 0]}, bs2]);
     }
 
     #[test]
     fn bitstore_bitnot_works() {
         let v1 = vec![0b00110001u8, 0b01010101u8];
         let not_v1 = vec![!0b00110001u8, !0b01010101u8];
-        assert_eq!(!BitStore::from(v1.clone()), BitStore::from(not_v1.clone()));
-        assert_eq!(!BitStore { bit_length: 10, bits: v1 }, BitStore { bit_length: 10, bits: not_v1 });
+        assert_eq!(!BStore::from(v1.clone()), BStore::from(not_v1.clone()));
+        assert_eq!(!BStore { bit_length: 10, bits: v1 }, BStore { bit_length: 10, bits: not_v1 });
     }
 
     #[test]
     fn bitstore_bitand_works() {
         let v1 = vec![0b00110001u8, 0b01010101u8];
         let not_v1 = vec![!0b00110001u8, !0b01010101u8];
-        let bs1 = BitStore::from(v1.clone());
-        let bs2 = BitStore::from(not_v1.clone());
-        assert_eq!(bs1.clone() & bs2.clone(), BitStore::zero(16));
-        assert_eq!(BitStore { bit_length: 10, bits: v1} & BitStore { bit_length: 10, bits: not_v1}, BitStore { bit_length: 10, bits: vec![0u8;2]});
+        let bs1 = BStore::from(v1.clone());
+        let bs2 = BStore::from(not_v1.clone());
+        assert_eq!(bs1.clone() & bs2.clone(), BStore::zero(16));
+        assert_eq!(BStore { bit_length: 10, bits: v1} & BStore { bit_length: 10, bits: not_v1}, BStore { bit_length: 10, bits: vec![0u8;2]});
     }
 
     #[test]
     fn bitstore_bitor_works() {
         let v1 = vec![0b00110001u8, 0b01010101u8];
         let not_v1 = vec![!0b00110001u8, !0b01010101u8];
-        let bs1 = BitStore::from(v1.clone());
-        let bs2 = BitStore::from(not_v1.clone());
-        assert_eq!(bs1.clone() | bs2.clone(), ! BitStore::zero(16));
-        assert_eq!(BitStore { bit_length: 10, bits: v1} | BitStore { bit_length: 10, bits: not_v1}, BitStore { bit_length: 10, bits: vec![! 0u8; 2]});
+        let bs1 = BStore::from(v1.clone());
+        let bs2 = BStore::from(not_v1.clone());
+        assert_eq!(bs1.clone() | bs2.clone(), ! BStore::zero(16));
+        assert_eq!(BStore { bit_length: 10, bits: v1} | BStore { bit_length: 10, bits: not_v1}, BStore { bit_length: 10, bits: vec![! 0u8; 2]});
     }
 
     #[test]
@@ -605,16 +605,16 @@ mod tests {
         let v1 = vec![0b00110001u8, 0b01010101u8];
         let v2 = vec![0b01010101u8, 0b00110001u8];
         let v3 = vec![0b01100100u8, 0b01100100u8];
-        let bs1 = BitStore::from(v1.clone());
-        let bs2 = BitStore::from(v2.clone());
-        let bs3 = BitStore::from(v3.clone());
+        let bs1 = BStore::from(v1.clone());
+        let bs2 = BStore::from(v2.clone());
+        let bs3 = BStore::from(v3.clone());
         assert_eq!(bs1.clone() ^ bs2.clone(), bs3.clone() );
-        assert_eq!(BitStore { bit_length: 10, bits: v1} ^ BitStore { bit_length: 10, bits: v2}, BitStore { bit_length: 10, bits: v3});
+        assert_eq!(BStore { bit_length: 10, bits: v1} ^ BStore { bit_length: 10, bits: v2}, BStore { bit_length: 10, bits: v3});
     }
 
     #[test]
     fn bitstore_binary_works() {
-        assert_eq!(format!("{:b}", BitStore::from(vec![0b01010101u8, 0b00110001])), "[01010101, 00110001]".to_string());
+        assert_eq!(format!("{:b}", BStore::from(vec![0b01010101u8, 0b00110001])), "[01010101, 00110001]".to_string());
     }
 
 }

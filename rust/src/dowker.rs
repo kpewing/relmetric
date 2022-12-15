@@ -10,7 +10,7 @@ For more about *abstract simplicial complexes* and the *Dowker complex*, see [De
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
-use crate::bitstore::BitStore;
+use crate::bitstore::BStore;
 use crate::relation::*;
 use crate::absico::*;
 
@@ -20,7 +20,7 @@ pub struct Dowker {
     /// The *Dowker Complex*'s generators.
     generators: AbSiCo,
     /// The [*differential weights*](Dowker::diff_weight()) of [`Face`]s in the *Dowker Complex*.
-    weights: BTreeMap<BitStore, usize>,
+    weights: BTreeMap<BStore, usize>,
 }
 
 impl Dowker {
@@ -50,7 +50,7 @@ where
 
 impl DowkerComplex for Dowker {
     type A = AbSiCo;
-    type F = BitStore;
+    type F = BStore;
 
     fn is_empty(&self) -> bool {
         self.generators.is_empty()
@@ -105,11 +105,11 @@ mod tests {
 
     #[test]
     fn dowker_from_brel_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![2, 4]);
-        let bs2_normalized = &BitStore::normalize(&[bs1.clone(), bs2.clone()])[1];
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![2, 4]);
+        let bs2_normalized = &BStore::normalize(&[bs1.clone(), bs2.clone()])[1];
         let br = BRel::from(vec![bs1.clone(), bs2.clone()]);
-        let mut bt: BTreeMap<BitStore, usize> = BTreeMap::new();
+        let mut bt: BTreeMap<BStore, usize> = BTreeMap::new();
         bt.insert(bs1.clone(), 1);
         bt.insert(bs2_normalized.clone(), 1);
         assert_eq!(Dowker::from(&br), Dowker { generators: AbSiCo::from(vec![bs1.clone()]), weights: bt}, "\n\nbs1:{:?}={:b} bs2:{:?}={:b}\nbr[0]:{:?}={:b} br[1]:{:?}={:b}\n", bs1, bs1, bs2, bs2, br.get_contents()[0], br.get_contents()[0], br.get_contents()[1], br.get_contents()[1]);
@@ -122,8 +122,8 @@ mod tests {
 
     #[test]
     fn dowker_diff_weight_works() {
-        let bs1 = BitStore::from_vertices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_vertices(vec![4, 8]);
+        let bs1 = BStore::from_vertices(vec![2, 4, 8]);
+        let bs2 = BStore::from_vertices(vec![4, 8]);
         let br = BRel::from(vec![bs1.clone(), bs2.clone()]);
         let dk = Dowker::from(&br);
         assert_eq!(dk.diff_weight(&bs1), 1);

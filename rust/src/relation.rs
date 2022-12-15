@@ -14,13 +14,13 @@ use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 
 pub use crate::bitstore::*;
 
-/// A `struct` to implement *binary relation*s as a [`Vec`] of [`BitStore`] bit fields oriented along a `major_axis`.
+/// A `struct` to implement *binary relation*s as a [`Vec`] of [`BStore`] bit fields oriented along a `major_axis`.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BRel {
     /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
     major_axis: Axis,
     /// The bit field.
-    contents: Vec<BitStore>
+    contents: Vec<BStore>
 }
 
 impl BRel {
@@ -41,17 +41,17 @@ impl BRel {
     }
 
     /// Return the `contents`.
-    pub fn get_contents(&self) -> Vec<BitStore> {
+    pub fn get_contents(&self) -> Vec<BStore> {
         self.contents.clone()
     }
 
     /// Set the `major_axis` to the given [`Axis`].
-    pub fn set_contents(&mut self, contents: &[BitStore]) -> &mut Self {
+    pub fn set_contents(&mut self, contents: &[BStore]) -> &mut Self {
         self.contents = contents.to_owned();
         self
     }
 
-    /// Sort the [`BitStore`]s in `contents` lexicographically by `major_axis` and `bits`.
+    /// Sort the [`BStore`]s in `contents` lexicographically by `major_axis` and `bits`.
     pub fn sort(&mut self) -> &mut Self {
         self.contents[..].sort();
         self
@@ -92,7 +92,7 @@ impl Relation for BRel {
         };
         BRel {
             major_axis,
-            contents: vec![BitStoreTrait::zero(bit_length); vec_length],
+            contents: vec![BitStore::zero(bit_length); vec_length],
         }
     }
 
@@ -170,8 +170,8 @@ impl Relation for BRel {
             },
             Axis::Row =>
                 if idx < self.get_row_count() {
-                    self.contents[idx] = BitStore::from(row);
-                    BitStore::normalize(&self.contents);
+                    self.contents[idx] = BStore::from(row);
+                    BStore::normalize(&self.contents);
                     Ok(self)
                 } else {
                     Err("out of bounds for BRel")
@@ -183,8 +183,8 @@ impl Relation for BRel {
         match self.major_axis {
             Axis::Column =>
                 if idx < self.get_col_count() {
-                    self.contents[idx] = BitStore::from(col);
-                    BitStore::normalize(&self.contents);
+                    self.contents[idx] = BStore::from(col);
+                    BStore::normalize(&self.contents);
                     Ok(self)
                 } else {
                     Err("out of bounds for BRel")
@@ -204,13 +204,13 @@ impl Relation for BRel {
                 if row < self.get_row_count() {
                     Ok(self.get_col(col)?[row])
                 } else {
-                    Err("out of bounds for BitStore")
+                    Err("out of bounds for BStore")
                 },
             Axis::Row =>
                 if col < self.get_col_count() {
                     Ok(self.get_row(row)?[col])
                 } else {
-                    Err("out of bounds for BitStore")
+                    Err("out of bounds for BStore")
                 }
         }
     }
@@ -244,7 +244,7 @@ impl Relation for BRel {
     }
 
     fn djgroup(&self) -> DJGrouping {
-        // Checks all [`BitStore`]s in `contents` v. all groups:
+        // Checks all [`BStore`]s in `contents` v. all groups:
         // - for each `contents[i]` first check overlap with all groups `res[j]`
         // -- if overlaps a `res[j]`, then expand it and check remaining groups `res[j+1..]`
         // -- if no overlaps, then create a new group `res[_]
@@ -586,16 +586,16 @@ impl Relation for BRel {
     }
 }
 
-impl From<Vec<BitStore>> for BRel {
-    fn from(bitstores: Vec<BitStore>) -> Self {
+impl From<Vec<BStore>> for BRel {
+    fn from(bitstores: Vec<BStore>) -> Self {
         BRel {
             major_axis: BRel::default().major_axis,
-            contents: BitStore::normalize(&bitstores) }
+            contents: BStore::normalize(&bitstores) }
     }
 }
 
 impl Index<usize> for BRel {
-    type Output = BitStore;
+    type Output = BStore;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.contents[index]
@@ -663,7 +663,7 @@ macro_rules! impl_brel_bitops {
                         major_axis: self.major_axis,
                         contents: zip(self.contents, rhs.contents)
                             .map(|(s, r)| s $op r)
-                            .collect::<Vec<BitStore>>(),
+                            .collect::<Vec<BStore>>(),
                     }
                 }
             }
@@ -678,7 +678,7 @@ impl_brel_bitops!(BitXor, bitxor, ^);
 impl Add for BRel {
     type Output = Self;
 
-    /// Multiset sum: disjoint union, *i.e.*, combine all [`BitStore`]s in both [`BRel`]s.
+    /// Multiset sum: disjoint union, *i.e.*, combine all [`BStore`]s in both [`BRel`]s.
     ///
     /// For more on multiset operations, see <https://en.wikipedia.org/wiki/Multiset#Basic_properties_and_operations>.
     ///
@@ -702,7 +702,7 @@ impl Add for BRel {
 impl Sub for BRel {
     type Output = Self;
 
-    /// Multiset difference: one-for-one remove from `self` each [`BitStore`] that is found in `other`.
+    /// Multiset difference: one-for-one remove from `self` each [`BStore`] that is found in `other`.
     ///
     /// For more on multiset operations, see <https://en.wikipedia.org/wiki/Multiset#Basic_properties_and_operations>.
     ///
@@ -739,11 +739,11 @@ impl Sub for BRel {
     }
 }
 
-/// A `struct` to represent a *column* in a *binary relation* as a [`BitStore`]. Provided as a convenience for creating [`BRel`]s.
+/// A `struct` to represent a *column* in a *binary relation* as a [`BStore`]. Provided as a convenience for creating [`BRel`]s.
 ///
-/// **NB**: To manipulate as a [`BitStore`](crate::bitstore::BitStore), convert it to/from [`BitStore`] with [`From<BitStore>`] and [`From<Column>`].
+/// **NB**: To manipulate as a [`BStore`](crate::bitstore::BStore), convert it to/from [`BStore`] with [`From<BStore>`] and [`From<Column>`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Column(BitStore);
+pub struct Column(BStore);
 
 impl Column {
     pub fn new() -> Self {
@@ -751,13 +751,13 @@ impl Column {
     }
 }
 
-impl From<BitStore> for Column {
-    fn from(bitstore: BitStore) -> Self {
+impl From<BStore> for Column {
+    fn from(bitstore: BStore) -> Self {
         Column(bitstore)
     }
 }
 
-impl From<Column> for BitStore {
+impl From<Column> for BStore {
     fn from(column: Column) -> Self {
         column.0
     }
@@ -765,22 +765,22 @@ impl From<Column> for BitStore {
 
 impl From<Vec<Column>> for BRel {
     fn from(columns: Vec<Column>) -> Self {
-        let bs: Vec<BitStore> = columns.into_iter()
+        let bs: Vec<BStore> = columns.into_iter()
             // .map(|x| x.0)
-            .map(|x| BitStore::from(x))
+            .map(|x| BStore::from(x))
             .collect();
         BRel {
             major_axis: Axis::Column,
-            contents: BitStore::normalize(&bs)
+            contents: BStore::normalize(&bs)
         }
     }
 }
 
-/// A `struct` to represent a *row* in a *binary relation* as a [`BitStore`].Provided as a for creating [`BRel`]s.
+/// A `struct` to represent a *row* in a *binary relation* as a [`BStore`].Provided as a for creating [`BRel`]s.
 ///
-/// **NB**: To manipulate as a [`BitStore`](crate::bitstore::BitStore), convert it to/from [`BitStore`] with [`From<BitStore>`] and [`From<Row>`].
+/// **NB**: To manipulate as a [`BStore`](crate::bitstore::BStore), convert it to/from [`BStore`] with [`From<BStore>`] and [`From<Row>`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Row(BitStore);
+pub struct Row(BStore);
 
 impl Row {
     pub fn new() -> Self {
@@ -788,13 +788,13 @@ impl Row {
     }
 }
 
-impl From<BitStore> for Row {
-    fn from(bitstore: BitStore) -> Self {
+impl From<BStore> for Row {
+    fn from(bitstore: BStore) -> Self {
         Row(bitstore)
     }
 }
 
-impl From<Row> for BitStore {
+impl From<Row> for BStore {
     fn from(column: Row) -> Self {
         column.0
     }
@@ -802,13 +802,13 @@ impl From<Row> for BitStore {
 
 impl From<Vec<Row>> for BRel {
     fn from(columns: Vec<Row>) -> Self {
-        let bs: Vec<BitStore> = columns.into_iter()
+        let bs: Vec<BStore> = columns.into_iter()
             // .map(|x| x.0)
-            .map(|x| BitStore::from(x))
+            .map(|x| BStore::from(x))
             .collect();
         BRel {
             major_axis: Axis::Row,
-            contents: BitStore::normalize(&bs)
+            contents: BStore::normalize(&bs)
         }
     }
 }
@@ -825,7 +825,7 @@ pub trait Relation {
     /// Return `true` if the *binary relation* is not [`empty`](Relation::is_empty()) but there are no relations, *i.e.*, an array representation would be non-empty but have only `false` in it.
     fn is_zero(&self) -> bool;
 
-    /// Return `true` if the *binary relation* is not empty, *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
+    /// Return a new *binary relation* is not [`empty`](Relation::is_empty()), *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
     fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
 
     /// Return the length of the [`Axis::Row`] dimension of the *binary relation*.
@@ -954,7 +954,7 @@ pub trait Relation {
 
 /// Represents the partition of a *binary relation* [`BRel`] into [`DJGroup`]s.
 ///
-/// A [`BRel`]'s [`BitStore`]s can be partitioned into a collection of [`DJGroup`]s, each collecting [`BitStore`]s that are *each* not disjoint (*i.e.*, share `true` at some bit) with *some* other member of the [`DJGroup`], but *all* are disjoint from *all* other [`BitStore`]s *not* in that [`DJGroup`]. The partition can be with respect to either [`Row`](Axis::Row) or [`Column`](Axis::Column).
+/// A [`BRel`]'s [`BStore`]s can be partitioned into a collection of [`DJGroup`]s, each collecting [`BStore`]s that are *each* not disjoint (*i.e.*, share `true` at some bit) with *some* other member of the [`DJGroup`], but *all* are disjoint from *all* other [`BStore`]s *not* in that [`DJGroup`]. The partition can be with respect to either [`Row`](Axis::Row) or [`Column`](Axis::Column).
 ///
 /// NB: Because a partition makes no sense away from its [`BRel`], the [`DJGrouping`] inherits the [lifetime](https://doc.rust-lang.org/book/ch10-03-lifetime-syntax.html) of its [`BRel`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -1032,12 +1032,12 @@ impl fmt::Display for DJGrouping<'_> {
     }
 }
 
-/// Represents a *disjoint-group* of [`BitStore`]s that are disjoint (*i.e.*, share `true` at some bit) with all other [`BitStore`]s in the *binary relation*.
+/// Represents a *disjoint-group* of [`BStore`]s that are disjoint (*i.e.*, share `true` at some bit) with all other [`BStore`]s in the *binary relation*.
 ///
-/// Each [`DJGroup`] collects indices in the *binary relation's* to [`BitStore`]s that share a relation (`true`) with at least one other member of the [`DJGroup`].
+/// Each [`DJGroup`] collects indices in the *binary relation's* to [`BStore`]s that share a relation (`true`) with at least one other member of the [`DJGroup`].
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DJGroup {
-    max: BitStore,
+    max: BStore,
     indices: Vec<usize>,
 }
 
@@ -1137,7 +1137,7 @@ mod tests {
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
-    use crate::bitstore::BitStore;
+    use crate::bitstore::BStore;
     // #[allow(unused_imports)]
     // use itertools::sorted;
 
@@ -1151,21 +1151,21 @@ mod tests {
 
     #[test]
     fn brel_index_works() {
-        let br = BRel::from(vec![BitStore::from(vec![0b01010101u8]), BitStore::from(vec![0b01010101u8])]);
-        assert_eq!(br[0], BitStore::from(vec![0b01010101u8]));
+        let br = BRel::from(vec![BStore::from(vec![0b01010101u8]), BStore::from(vec![0b01010101u8])]);
+        assert_eq!(br[0], BStore::from(vec![0b01010101u8]));
         assert_eq!(br[0][0], false);
         assert_eq!(br[1][1], true);
     }
 
     #[test]
     fn brel_binary_works() {
-        assert_eq!(format!("{:b}", BRel::from(vec![BitStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
+        assert_eq!(format!("{:b}", BRel::from(vec![BStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
     }
 
     #[test]
     fn brel_bitnot_works() {
-        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
-        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let bs1 = BStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BStore::from(vec![0b10110000u8, 0b00000101u8]);
         let br = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
         let not_br = BRel { major_axis: Axis::Row, contents: vec![!bs1.clone(), !bs2.clone()]};
         assert_eq!(!br.clone(), not_br, "br:{:b} not_br:{:b}", br, not_br);
@@ -1173,8 +1173,8 @@ mod tests {
 
     #[test]
     fn brel_bitand_works() {
-        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
-        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let bs1 = BStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BStore::from(vec![0b10110000u8, 0b00000101u8]);
         let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
         let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
         let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() & bs2.clone(), bs2.clone() & bs1.clone()]};
@@ -1183,8 +1183,8 @@ mod tests {
 
     #[test]
     fn brel_bitor_works() {
-        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
-        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let bs1 = BStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BStore::from(vec![0b10110000u8, 0b00000101u8]);
         let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
         let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
         let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() | bs2.clone(), bs2.clone() | bs1.clone()]};
@@ -1193,8 +1193,8 @@ mod tests {
 
     #[test]
     fn brel_bitxor_works() {
-        let bs1 = BitStore::from(vec![0b00010101u8, 0b10100000u8]);
-        let bs2 = BitStore::from(vec![0b10110000u8, 0b00000101u8]);
+        let bs1 = BStore::from(vec![0b00010101u8, 0b10100000u8]);
+        let bs2 = BStore::from(vec![0b10110000u8, 0b00000101u8]);
         let br1 = BRel { major_axis: Axis::Row, contents: vec![bs1.clone(), bs2.clone()] };
         let br2 = BRel { major_axis: Axis::Row, contents: vec![bs2.clone(), bs1.clone()] };
         let want = BRel { major_axis: Axis::Row, contents: vec![bs1.clone() | bs2.clone(), bs2.clone() | bs1.clone()]};
@@ -1204,18 +1204,18 @@ mod tests {
     #[test]
     fn brel_sub_works() {
         let r1 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x0000u16, 0x0000u16]),
-            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x0000u16, 0x0000u16]),
+            BStore::from(vec![0x100fu16, 0x0f3fu16]),
         ]);
         let r2 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x0000u16, 0x0000u16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x0000u16, 0x0000u16]),
         ]);
         let r3 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x100fu16, 0x0f3fu16]),
         ]);
         let mut res = r1.clone() - r2.clone();
         assert_eq!(
@@ -1237,18 +1237,18 @@ mod tests {
     #[test]
     fn brel_add_works() {
         let mut r1 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x0000u16, 0x0000u16]),
-            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x0000u16, 0x0000u16]),
+            BStore::from(vec![0x100fu16, 0x0f3fu16]),
         ]);
         let r2 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x0000u16, 0x0000u16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x0000u16, 0x0000u16]),
         ]);
         let r3 = BRel::from(vec![
-            BitStore::from(vec![0x3000u16, 0x000fu16]),
-            BitStore::from(vec![0x100fu16, 0x0f3fu16]),
+            BStore::from(vec![0x3000u16, 0x000fu16]),
+            BStore::from(vec![0x100fu16, 0x0f3fu16]),
         ]);
         let mut res = r2.clone() + r3.clone();
         res.sort();
@@ -1262,38 +1262,38 @@ mod tests {
 
     #[test]
     fn column_new_works() {
-        assert_eq!(Column::new(), Column(BitStore::new()));
+        assert_eq!(Column::new(), Column(BStore::new()));
     }
 
     #[test]
     fn column_from_to_work() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
         assert_eq!(Column::from(bs1.clone()), Column(bs1.clone()));
-        assert_eq!(BitStore::from(Column(bs1.clone())), bs1.clone());
+        assert_eq!(BStore::from(Column(bs1.clone())), bs1.clone());
     }
 
     #[test]
     fn brel_from_columns_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
         let br = BRel::from(vec![Column::from(bs1.clone())]);
         assert_eq!(br, BRel { major_axis: Axis::Column, contents: vec![bs1] });
     }
 
     #[test]
     fn row_new_works() {
-        assert_eq!(Row::new(), Row(BitStore::new()));
+        assert_eq!(Row::new(), Row(BStore::new()));
     }
 
     #[test]
     fn row_from_to_work() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
         assert_eq!(Row::from(bs1.clone()), Row(bs1.clone()));
-        assert_eq!(BitStore::from(Row(bs1.clone())), bs1.clone());
+        assert_eq!(BStore::from(Row(bs1.clone())), bs1.clone());
     }
 
     #[test]
     fn brel_from_rows_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
         let br = BRel::from(vec![Row::from(bs1.clone())]);
         assert_eq!(br, BRel { major_axis: Axis::Row, contents: vec![bs1] });
     }
@@ -1307,9 +1307,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_from_bitstores_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let bsvec = vec![bs1, bs2, bs3];
         let r1 = BRel::from(bsvec.clone());
         assert_eq!(r1, BRel { major_axis: Axis::Row, contents: bsvec});
@@ -1317,7 +1317,7 @@ mod tests {
 
     #[test]
     fn reltrait_brel_zero_works() {
-        assert_eq!(BRel::zero(2, 9, Axis::Column), BRel { major_axis: Axis::Column, contents: vec![BitStore::zero(2); 9]});
+        assert_eq!(BRel::zero(2, 9, Axis::Column), BRel { major_axis: Axis::Column, contents: vec![BStore::zero(2); 9]});
     }
 
     #[test]
@@ -1334,9 +1334,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_get_row_count_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let r1 = BRel::from(vec![bs2, bs1, bs3]);
         assert_eq!(r1.get_row_count(), 3);
         assert_eq!(BRel::new().get_row_count(), 0);
@@ -1344,9 +1344,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_get_col_count_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1, bs3]);
         r1.set_major_axis(&Axis::Column);
         assert_eq!(r1.get_col_count(), 3);
@@ -1355,9 +1355,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_get_row_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
         assert_eq!(r1.get_row(1), bs1.get_bits(0..bs1.get_bit_length()));
         r1.set_major_axis(&Axis::Column);
@@ -1366,9 +1366,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_set_row_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
         assert_eq!(r1.set_row(2, bs1.get_bits(0..bs1.get_bit_length()).unwrap()).unwrap().get_row(2), bs1.get_bits(0..bs1.get_bit_length()));
         r1.set_major_axis(&Axis::Column);
@@ -1377,9 +1377,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_get_col_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
         assert_eq!(r1.get_col(0), Ok(vec![false, false, false]));
         r1.set_major_axis(&Axis::Column);
@@ -1388,9 +1388,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_set_col_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let mut r1 = BRel::from(vec![bs2, bs1.clone(), bs3]);
         let r2 = r1.clone();
         assert_eq!(r1.set_col(0, vec![true, true, true]).unwrap().get_col(0), Ok(vec![true, true, true]), "\nset_col({}, {:?}) fails for\n{:b}", 0, vec![true, true, true], r2);
@@ -1400,8 +1400,8 @@ mod tests {
 
     #[test]
     fn reltrait_brel_get_cell_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
         let r1 = BRel::from(vec![bs1, bs2]);
         assert_eq!(r1.get_cell(0, 2), Ok(true), "\nget_cell({}, {})={} fails for: {:b}", 0, 2, true, r1);
         assert_eq!(r1.get_cell(0, 0), Ok(false), "\nget_cell({}, {})={} fails for: {:b}", 0, 0, false, r1);
@@ -1410,8 +1410,8 @@ mod tests {
 
     #[test]
     fn reltrait_brel_set_cell_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
         let mut r1 = BRel::from(vec![bs1, bs2]);
         assert_eq!(r1.set_cell(0, 0, true).unwrap().get_cell(0, 0), Ok(true), "\nset_cell({}, {}, {})={} fails for: {:b}", 0, 0, true, true, r1);
         assert_eq!(r1.set_cell(1, 4, false).unwrap().get_cell(1, 4), Ok(false), "\nset_cell({}, {}, {})={} fails for: {:b}", 0, 0, false, false, r1);
@@ -1422,16 +1422,16 @@ mod tests {
     #[test]
     fn djgrouping_display_works() {
         let row_br = BRel::from(vec![
-            BitStore::from(vec![0b0000u8]),
-            BitStore::from(vec![0b1000u8]),
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b0010u8]),
-            BitStore::from(vec![0b0010u8]),
-            BitStore::from(vec![0b0001u8]),
-            BitStore::from(vec![0b0001u8]),
-            BitStore::from(vec![0b0001u8]),
-            BitStore::from(vec![0b0001u8]),
+            BStore::from(vec![0b0000u8]),
+            BStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b0010u8]),
+            BStore::from(vec![0b0010u8]),
+            BStore::from(vec![0b0001u8]),
+            BStore::from(vec![0b0001u8]),
+            BStore::from(vec![0b0001u8]),
+            BStore::from(vec![0b0001u8]),
         ]);
         let mut col_br = row_br.clone();
         col_br.set_major_axis(&Axis::Column);
@@ -1479,9 +1479,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_djgroup_works() {
-        let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
-        let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
-        let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
+        let c1 = BStore::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = BStore::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = BStore::from(vec![0x100fu16, 0x0f3fu16]);
         let mut r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
         let mut res = r1.djgroup().partition.len();
         let mut want = 2;
@@ -1509,9 +1509,9 @@ mod tests {
 
     #[test]
     fn reltrait_brel_djgroupby_works() {
-        let c1 = BitStore::from(vec![0x3000u16, 0x000fu16]);
-        let c2 = BitStore::from(vec![0x0000u16, 0x0000u16]);
-        let c3 = BitStore::from(vec![0x100fu16, 0x0f3fu16]);
+        let c1 = BStore::from(vec![0x3000u16, 0x000fu16]);
+        let c2 = BStore::from(vec![0x0000u16, 0x0000u16]);
+        let c3 = BStore::from(vec![0x100fu16, 0x0f3fu16]);
         let mut r1 = BRel::from(vec![c1.clone(), c1, c2.clone(), c3.clone()]);
         r1.set_major_axis(&Axis::Column);
         let mut res = r1.djgroup_by(&Axis::Column).partition.len();
@@ -1542,29 +1542,29 @@ mod tests {
     fn reltrait_brel_kappa_works() {
         // "R" of Example 10 in "Metric Comparisons".
         let ex10_r = BRel::from(vec![
-            BitStore::from(vec![0x0u8]),
-            BitStore::from(vec![0x08u8]),
-            BitStore::from(vec![0x0cu8]),
-            BitStore::from(vec![0x0cu8]),
-            BitStore::from(vec![0x02u8]),
-            BitStore::from(vec![0x02u8]),
-            BitStore::from(vec![0x01u8]),
-            BitStore::from(vec![0x01u8]),
-            BitStore::from(vec![0x01u8]),
-            BitStore::from(vec![0x01u8]),
+            BStore::from(vec![0x0u8]),
+            BStore::from(vec![0x08u8]),
+            BStore::from(vec![0x0cu8]),
+            BStore::from(vec![0x0cu8]),
+            BStore::from(vec![0x02u8]),
+            BStore::from(vec![0x02u8]),
+            BStore::from(vec![0x01u8]),
+            BStore::from(vec![0x01u8]),
+            BStore::from(vec![0x01u8]),
+            BStore::from(vec![0x01u8]),
         ]);
         // "R3" of Example 12 in "Metric Comparisons".
         let ex12_r3 = BRel::from(vec![
-            BitStore::from(vec![0b1000u8]),
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1100u8]),
         ]);
         // "R4" of Example 13 in "Metric Comparisons".
         let ex13_r4 = BRel::from(vec![
-            BitStore::from(vec![0b0000u8]),
-            BitStore::from(vec![0b1000u8]),
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b0000u8]),
+            BStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1100u8]),
         ]);
         assert_eq!(
             ex12_r3.kappa(Some(5)),
@@ -1592,55 +1592,55 @@ mod tests {
     fn reltrait_brel_rel_dist_bound_works() {
         // "R1" of Example 18 in "Metric Comparisons".
         let ex18_r1 = BRel::from(vec![
-            BitStore::from(vec![0b10111u8]),
-            BitStore::from(vec![0b01111u8]),
-            BitStore::from(vec![0b10111u8]),
-            BitStore::from(vec![0b11001u8]),
-            BitStore::from(vec![0b00111u8]),
-            BitStore::from(vec![0b00000u8]),
-            BitStore::from(vec![0b10001u8]),
-            BitStore::from(vec![0b11001u8]),
-            BitStore::from(vec![0b01001u8]),
-            BitStore::from(vec![0b11101u8]),
+            BStore::from(vec![0b10111u8]),
+            BStore::from(vec![0b01111u8]),
+            BStore::from(vec![0b10111u8]),
+            BStore::from(vec![0b11001u8]),
+            BStore::from(vec![0b00111u8]),
+            BStore::from(vec![0b00000u8]),
+            BStore::from(vec![0b10001u8]),
+            BStore::from(vec![0b11001u8]),
+            BStore::from(vec![0b01001u8]),
+            BStore::from(vec![0b11101u8]),
         ]);
         // "R2" of Example 18 in "Metric Comparisons".
         let ex18_r2 = BRel::from(vec![
-            BitStore::from(vec![0b00100u8]),
-            BitStore::from(vec![0b00010u8]),
-            BitStore::from(vec![0b11100u8]),
-            BitStore::from(vec![0b11110u8]),
-            BitStore::from(vec![0b01000u8]),
-            BitStore::from(vec![0b11101u8]),
-            BitStore::from(vec![0b10100u8]),
-            BitStore::from(vec![0b11010u8]),
-            BitStore::from(vec![0b01111u8]),
-            BitStore::from(vec![0b10101u8]),
+            BStore::from(vec![0b00100u8]),
+            BStore::from(vec![0b00010u8]),
+            BStore::from(vec![0b11100u8]),
+            BStore::from(vec![0b11110u8]),
+            BStore::from(vec![0b01000u8]),
+            BStore::from(vec![0b11101u8]),
+            BStore::from(vec![0b10100u8]),
+            BStore::from(vec![0b11010u8]),
+            BStore::from(vec![0b01111u8]),
+            BStore::from(vec![0b10101u8]),
         ]);
         // "R1" of Example 19 in "Metric Comparisons".
         let ex19_r1 = BRel::from(vec![
-            BitStore::from(vec![0b00000u8]),
-            BitStore::from(vec![0b00101u8]),
-            BitStore::from(vec![0b11000u8]),
-            BitStore::from(vec![0b00100u8]),
-            BitStore::from(vec![0b01000u8]),
-            BitStore::from(vec![0b10000u8]),
-            BitStore::from(vec![0b00101u8]),
-            BitStore::from(vec![0b00000u8]),
-            BitStore::from(vec![0b00100u8]),
-            BitStore::from(vec![0b11000u8]),
+            BStore::from(vec![0b00000u8]),
+            BStore::from(vec![0b00101u8]),
+            BStore::from(vec![0b11000u8]),
+            BStore::from(vec![0b00100u8]),
+            BStore::from(vec![0b01000u8]),
+            BStore::from(vec![0b10000u8]),
+            BStore::from(vec![0b00101u8]),
+            BStore::from(vec![0b00000u8]),
+            BStore::from(vec![0b00100u8]),
+            BStore::from(vec![0b11000u8]),
         ]);
         // "R2" of Example 19 in "Metric Comparisons".
         let ex19_r2 = BRel::from(vec![
-            BitStore::from(vec![0b00000u8]),
-            BitStore::from(vec![0b00101u8]),
-            BitStore::from(vec![0b11000u8]),
-            BitStore::from(vec![0b01100u8]),
-            BitStore::from(vec![0b01000u8]),
-            BitStore::from(vec![0b10000u8]),
-            BitStore::from(vec![0b00001u8]),
-            BitStore::from(vec![0b00001u8]),
-            BitStore::from(vec![0b00100u8]),
-            BitStore::from(vec![0b10010u8]),
+            BStore::from(vec![0b00000u8]),
+            BStore::from(vec![0b00101u8]),
+            BStore::from(vec![0b11000u8]),
+            BStore::from(vec![0b01100u8]),
+            BStore::from(vec![0b01000u8]),
+            BStore::from(vec![0b10000u8]),
+            BStore::from(vec![0b00001u8]),
+            BStore::from(vec![0b00001u8]),
+            BStore::from(vec![0b00100u8]),
+            BStore::from(vec![0b10010u8]),
         ]);
         assert_eq!(
             ex18_r1.rel_dist_bound(&ex18_r2),
@@ -1657,22 +1657,22 @@ mod tests {
     #[test]
     fn reltrait_brel_match_indices_works() {
         let r1 = BRel::from(vec![
-            BitStore::from(vec![0b1000u8]),
-            BitStore::from(vec![0b1001u8]),
+            BStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b1001u8]),
         ]);
         let r2 = BRel::from(vec![
-            BitStore::from(vec![0b0000u8]),
-            BitStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b0000u8]),
+            BStore::from(vec![0b1000u8]),
         ]);
         let matches = vec![1usize, 0usize];
         let res = r1.match_indices(&r2, &matches);
         let want = BRel::from(vec![
-            BitStore::from(vec![0b1000u8]),
-            BitStore::from(vec![0b0000u8]),
+            BStore::from(vec![0b1000u8]),
+            BStore::from(vec![0b0000u8]),
         ]);
         assert_eq!(res, want, "\nRelation::match_indices fails with matches[{:?}] for \n{:b} \n{:b}\nwanted {:b}\ngot    {:b}\n", matches, r1, r2, want, res);
 
-        let ex1_r1 = BRel { major_axis: Axis::Column, contents: vec![BitStore::from_indices(vec![1])] };
+        let ex1_r1 = BRel { major_axis: Axis::Column, contents: vec![BStore::from_indices(vec![1])] };
         let ex1_r2 = BRel::new();
         let ex1_matches = vec![0];
         let ex1_res = ex1_r1.match_indices(&ex1_r2, &ex1_matches);
@@ -1680,34 +1680,34 @@ mod tests {
         assert_eq!(res, want, "\nRelation::match_indices fails Ex 1 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
 
         let ex2_r1 = BRel::from(vec![
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1010u8]),
-            BitStore::from(vec![0b1011u8]),
-            BitStore::from(vec![0b0011u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1010u8]),
+            BStore::from(vec![0b1011u8]),
+            BStore::from(vec![0b0011u8]),
         ]);
         // ex2_r1.trim_row_count();
         let ex2_r2 = BRel::from(vec![
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1011u8]),
-            BitStore::from(vec![0b0101u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1011u8]),
+            BStore::from(vec![0b0101u8]),
         ]);
         // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
         let ex2_matches21 = vec![1, 2, 0];
         let ex2_res12 = ex2_r1.match_indices(&ex2_r2, &ex2_matches12);
         let ex2_want12 = BRel::from(vec![
-            BitStore::from(vec![0b1100u8]),
-            BitStore::from(vec![0b1011u8]),
-            BitStore::from(vec![0b1011u8]),
-            BitStore::from(vec![0b0101u8]),
+            BStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1011u8]),
+            BStore::from(vec![0b1011u8]),
+            BStore::from(vec![0b0101u8]),
         ]);
         assert_eq!(ex2_res12, ex2_want12, "\nRelation::match_indices fails Ex 2 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex2_matches12, ex2_r1, ex2_r2, ex2_want12, ex2_res12);
 
         let ex2_res21 = ex2_r2.match_indices(&ex2_r1, &ex2_matches21);
         let ex2_want21 = BRel::from(vec![
-            BitStore::from(vec![0b1010u8]),
-            BitStore::from(vec![0b1011u8]),
-            BitStore::from(vec![0b1100u8]),
+            BStore::from(vec![0b1010u8]),
+            BStore::from(vec![0b1011u8]),
+            BStore::from(vec![0b1100u8]),
         ]);
         assert_eq!(ex2_res21, ex2_want21, "\nRelation::match_indices fails Ex 2 with matches[{:?}] for\n{:b}\n{:b}\nwanted {:b}\ngot    {:b}\n", ex2_matches21, ex2_r2, ex2_r1, ex2_want21, ex2_res21);
     }
@@ -1716,7 +1716,7 @@ mod tests {
     fn reltrait_brel_weight_works() {
         let ex1_r1 = BRel {
             major_axis: Axis::Row,
-            contents: vec![BitStore::from_indices(vec![0])]
+            contents: vec![BStore::from_indices(vec![0])]
         };
         let ex1_r2 = BRel::new();
         let ex1_matches = vec![0];
@@ -1725,16 +1725,16 @@ mod tests {
         assert_eq!(ex1_res, ex1_want, "\nBRel::weight fails Ex 1 with matches[{:?}] for\n {:b}\n {:b}\nwanted:{} got:{}", ex1_matches, ex1_r1, ex1_r2, ex1_want, ex1_res);
 
         let ex2_r1 = BRel::from(vec![
-            BitStore::from(vec![0b11000000u8]),
-            BitStore::from(vec![0b10100000u8]),
-            BitStore::from(vec![0b10110000u8]),
-            BitStore::from(vec![0b00110000u8]),
+            BStore::from(vec![0b11000000u8]),
+            BStore::from(vec![0b10100000u8]),
+            BStore::from(vec![0b10110000u8]),
+            BStore::from(vec![0b00110000u8]),
         ]);
         // ex2_r1.trim_row_count();
         let ex2_r2 = BRel::from(vec![
-            BitStore::from(vec![0b11000000u8]),
-            BitStore::from(vec![0b10110000u8]),
-            BitStore::from(vec![0b01010000u8]),
+            BStore::from(vec![0b11000000u8]),
+            BStore::from(vec![0b10110000u8]),
+            BStore::from(vec![0b01010000u8]),
         ]);
         // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
@@ -1767,7 +1767,7 @@ mod tests {
     fn reltrait_brel_min_weight_works() {
         let ex1_r1 = BRel {
             major_axis: Axis::Row,
-            contents: vec![BitStore::from_indices(vec![0])],
+            contents: vec![BStore::from_indices(vec![0])],
         };
         let ex1_r2 = BRel::new();
         let ex1_res = ex1_r1.min_weight(&ex1_r2);
@@ -1779,16 +1779,16 @@ mod tests {
         );
 
         let ex2_r1 = BRel::from(vec![
-            BitStore::from(vec![true, true, false, false]),
-            BitStore::from(vec![true, false, true, false]),
-            BitStore::from(vec![true, false, true, true]),
-            BitStore::from(vec![false, false, true, true,]),
+            BStore::from(vec![true, true, false, false]),
+            BStore::from(vec![true, false, true, false]),
+            BStore::from(vec![true, false, true, true]),
+            BStore::from(vec![false, false, true, true,]),
             ]);
             // ex2_r1.trim_row_count();
             let ex2_r2 = BRel::from(vec![
-            BitStore::from(vec![true, true, false, false]),
-            BitStore::from(vec![true, false, true, true]),
-            BitStore::from(vec![false, true, false, true]),
+            BStore::from(vec![true, true, false, false]),
+            BStore::from(vec![true, false, true, true]),
+            BStore::from(vec![false, true, false, true]),
         ]);
         // ex2_r2.trim_row_count();
         let ex2_res12 = ex2_r1.min_weight(&ex2_r2);
@@ -1812,7 +1812,7 @@ mod tests {
     fn reltrait_brel_distance_works() {
         let ex1_r1 = BRel {
             major_axis: Axis::Row,
-            contents: vec![BitStore::from_indices(vec![0])],
+            contents: vec![BStore::from_indices(vec![0])],
         };
         let ex1_r2 = BRel::new();
         let ex1_res = ex1_r1.distance(&ex1_r2);
@@ -1824,16 +1824,16 @@ mod tests {
         );
 
         let ex2_r1 = BRel::from(vec![
-            BitStore::from(vec![true, true, false, false]),
-            BitStore::from(vec![true, false, true, false]),
-            BitStore::from(vec![true, false, true, true]),
-            BitStore::from(vec![false, false, true, true]),
+            BStore::from(vec![true, true, false, false]),
+            BStore::from(vec![true, false, true, false]),
+            BStore::from(vec![true, false, true, true]),
+            BStore::from(vec![false, false, true, true]),
             ]);
         // ex2_r1.trim_row_count();
         let ex2_r2 = BRel::from(vec![
-            BitStore::from(vec![true, true, false, false]),
-            BitStore::from(vec![true, false, true, true]),
-            BitStore::from(vec![false, true, false, true]),
+            BStore::from(vec![true, true, false, false]),
+            BStore::from(vec![true, false, true, true]),
+            BStore::from(vec![false, true, false, true]),
         ]);
         // ex2_r2.trim_row_count();
         let ex2_res = ex2_r2.distance(&ex2_r1);
@@ -1847,19 +1847,19 @@ mod tests {
 
     #[test]
     fn reltrait_brel_transpose_works() {
-        let bs1 = BitStore::from_indices(vec![2, 4, 8]);
-        let bs2 = BitStore::from_indices(vec![4, 8]);
-        let bs3 = BitStore::from_indices(vec![2, 8]);
+        let bs1 = BStore::from_indices(vec![2, 4, 8]);
+        let bs2 = BStore::from_indices(vec![4, 8]);
+        let bs3 = BStore::from_indices(vec![2, 8]);
         let r1 = BRel::from(vec![bs1, bs2, bs3]);
-        let bs1_t = BitStore::from_indices(vec![]);
-        let bs2_t = BitStore::from_indices(vec![]);
-        let bs3_t = BitStore::from_indices(vec![0, 2]);
-        let bs4_t = BitStore::from_indices(vec![]);
-        let bs5_t = BitStore::from_indices(vec![0, 1]);
-        let bs6_t = BitStore::from_indices(vec![]);
-        let bs7_t = BitStore::from_indices(vec![]);
-        let bs8_t = BitStore::from_indices(vec![]);
-        let bs9_t = BitStore::from_indices(vec![0, 1, 2]);
+        let bs1_t = BStore::from_indices(vec![]);
+        let bs2_t = BStore::from_indices(vec![]);
+        let bs3_t = BStore::from_indices(vec![0, 2]);
+        let bs4_t = BStore::from_indices(vec![]);
+        let bs5_t = BStore::from_indices(vec![0, 1]);
+        let bs6_t = BStore::from_indices(vec![]);
+        let bs7_t = BStore::from_indices(vec![]);
+        let bs8_t = BStore::from_indices(vec![]);
+        let bs9_t = BStore::from_indices(vec![0, 1, 2]);
         let r1_t = BRel::from(vec![bs1_t, bs2_t, bs3_t, bs4_t, bs5_t, bs6_t, bs7_t, bs8_t, bs9_t]);
         let res = r1.transpose();
         assert_eq!((res.get_row_count(), res.get_col_count(), res.get_major_axis()), (9, 3, Axis::Row), "\nfrom:\n{:b}\nres:\n{:b}", r1, res);
