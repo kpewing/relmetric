@@ -14,7 +14,7 @@ use std::{fmt::{Debug}};
 // use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 use itertools::Itertools;
 
-use crate::bitstore::BitStore;
+use crate::bitstore::*;
 
 /// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
 ///
@@ -478,8 +478,9 @@ mod tests {
 
     #[test]
     fn face_bitstore_is_empty_works() {
-        assert!(BitStore::new().is_empty());
-        assert!(!BitStore::from_vertices(vec![2, 4, 8]).is_empty());
+        // assert!(BitStore::new().is_empty());
+        assert!(Face::is_empty(&BitStore::new()));
+        assert!(!Face::is_empty(&BitStore::from_vertices(vec![2, 4, 8])));
     }
 
     #[test]

@@ -16,8 +16,6 @@ use std::ops::{Not, BitAnd, BitOr, BitXor, Index};
 /// A type for storing *bits* in a variable-length [`Vec`] of [`u8`]s.
 ///
 /// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
-//
-// [ ] - TODO: consider implementing [`SliceIndex`](https://doc.rust-lang.org/std/slice/trait.SliceIndex.html) to access bits
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BitStore {
     /// Count of bits represented.
@@ -27,13 +25,18 @@ pub struct BitStore {
 }
 
 impl BitStore {
-    /// Create a new, default [`BitStore`], which is empty.
     pub fn new() -> Self {
         Default::default()
     }
+}
 
-    /// Create a [`BitStore`] of given `bit_length` with bits all `false` (*i.e.*, "zero").
-    pub fn zero(bit_length: usize) -> Self {
+impl BitStoreTrait for BitStore {
+
+    fn new() -> Self {
+        Self::new()
+    }
+
+    fn zero(bit_length: usize) -> Self {
         if bit_length == 0 {
             BitStore {
                 bit_length,
@@ -52,72 +55,11 @@ impl BitStore {
         }
     }
 
-    /// Create a [`BitStore`] with `true` bits at given indices.
-    pub fn from_indices(bits: Vec<usize>) -> Self {
-        let mut res = BitStore::new();
-        match bits.iter().max() {
-            None => res,
-            Some(&n) => {
-                res.set_capacity(n + 1).unwrap();
-                res.set_bit_length(n + 1).unwrap();
-                for bit in bits {
-                    res.set_bit(bit, true).unwrap();
-                };
-                res
-            }
-        }
-    }
-
-    /// Return `true` if the [`BitStore`] is empty, *i.e.*, the `bit_length` == 0.
-    pub fn is_empty(&self) -> bool {
-        self.bit_length == 0
-    }
-
-    /// Return `true` if the [`BitStore`] is zero, *i.e.*, the `bit_length` > 0 and all `bits` are `false`.
-    pub fn is_zero(&self) -> bool {
-        self.bit_length > 0 && self.count_ones() == 0
-    }
-
-    /// Return a validated [`Range`] into the [`BitStore`] or an "out of bounds" `Err`.
-    pub fn valid_range<T: RangeBounds<usize>>(&self, range: T) -> Result<Range<usize>, &'static str> {
-        let start = match range.start_bound() {
-            Bound::Excluded(&value) => value + 1,
-            Bound::Included(&value) => value,
-            Bound::Unbounded => 0,
-        };
-        let end = match range.end_bound() {
-            Bound::Excluded(&value) => value,
-            Bound::Included(&value) => value + 1,
-            Bound::Unbounded => self.bit_length,
-        };
-        if start <= end && start <= self.bit_length && end <= self.bit_length {
-            Ok(Range { start, end })
-        } else {
-            Err("out of bounds for BitStore")
-        }
-    }
-
-    /// Return the number of bits actually represented by the `BitStore`.
-    ///
-    /// **NB**: This may be less than the `capacity`.
-    pub fn get_bit_length(&self) -> usize {
+    fn get_bit_length(&self) -> usize {
         self.bit_length
     }
 
-    /// Return the [`BitStore`] with the given [`bit_length`](BitStore::bit_length) or an "out of bounds" `Err`.
-    ///
-    /// The `bit_length` **must not** exceed the `capacity`. To avoid possible `Err`, first use [`set_capacity()](BitStore::set_capacity()).
-    ///
-    /// # Example
-    ///
-    /// use relmetric::*;
-    ///
-    /// let mut bs = BitStore { bit_length: 5, bits: vec![0u8]};
-    /// assert!(bs.set_bit_length(10).is_err());
-    /// bs.set_capacity(10);
-    /// assert!(bs.set_bit_length(10).is_ok());
-    ///
-    pub fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
+    fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
         if value == self.bit_length {
             Ok(self)
         } else if value > self.bit_length && value <= self.get_capacity() {
@@ -128,17 +70,12 @@ impl BitStore {
         }
     }
 
-    /// Return the *capacity* of the [`BitStore`] in bits, which is the number of bits that *can* be represented.
-    pub fn get_capacity(&self) -> usize {
+    /// Return the *capacity* of the [`BitStoreTrait`] in bits, which is the number of bits that *can* be represented.
+    fn get_capacity(&self) -> usize {
         self.bits.len() * u8::BITS as usize
     }
 
-    /// Return the `BitStore` with the given `capacity`, growing it if needed without increasing the [`bit_length`](BitStore::get_bit_length()), or an "out of bounds" `Err`.
-    ///
-    ///  This **must** equal or exceed the [`bit_length`](BitStore::get_bit_length()). To avoid possible `Err`, before increasing the `bit_length`, first use [`set_capacity()](BitStore::set_capacity()).
-    ///
-    ///  See *Example* at [`set_bit_length()`](BitStore::set_bit_length()).
-    pub fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str> {
+    fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str> {
         let cap = self.get_capacity();
         if value < self.bit_length {
             Err("can't reduce BitStore capacity below bit_length")
@@ -153,13 +90,7 @@ impl BitStore {
         }
     }
 
-    /// Return the `bool` value of the given bit, or an "out of bounds" `Err`.
-    pub fn get_bit(&self, idx: usize) -> Result<bool, &'static str> {
-        self.get_bits(idx..(idx + 1)).map(|x| x[0])
-    }
-
-    /// Return a `Vec` of `bool` values of the given range of bits, or an "out of bounds" `Err`.
-    pub fn get_bits(&self, range: Range<usize>) -> Result<Vec<bool>, &'static str> {
+    fn get_bits(&self, range: Range<usize>) -> Result<Vec<bool>, &'static str> {
         const ROW_MASK: [u8; 8] = [
             0b10000000u8,
             0b01000000u8,
@@ -182,13 +113,7 @@ impl BitStore {
         Ok(self.valid_range(range)?.map(f).collect())
     }
 
-    // Return the `BitStore` with the given bit set to the given `bool` value, or an "out of bounds" `Err`.
-    pub fn set_bit(&mut self, idx: usize, value: bool) -> Result<&mut Self, &'static str> {
-        self.set_bits(idx..(idx + 1), vec![value])
-    }
-
-    // Return the `BitStore` with the given range of bits set to the given `bool` values, or an "out of bounds" `Err`.
-    pub fn set_bits<T: RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str> {
+    fn set_bits<T: RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str> {
         const ROW_MASK: [u8; 8] = [
             0b10000000u8,
             0b01000000u8,
@@ -213,8 +138,7 @@ impl BitStore {
         Ok(self)
     }
 
-    /// Return the count of `true` bits in the `BitStore`.
-    pub fn count_ones(&self) -> usize {
+    fn count_ones(&self) -> usize {
         const REST_MASK: [u8; 8] = [
             0b10000000u8,
             0b11000000u8,
@@ -235,25 +159,132 @@ impl BitStore {
         }
     }
 
-    /// Return the given `Vec` of `BitStore`s *normalized* to have the same `bit_length` and `capacity()`.
-    pub fn normalize(faces: &[Self]) -> Vec<Self> {
+}
+
+
+pub trait BitStoreTrait {
+    /// Create a new, default [`BitStoreTrait`], which is empty.
+    fn new() -> Self;
+
+    /// Create a [`BitStoreTrait`] of given `bit_length` with bits all `false` (*i.e.*, "zero").
+    fn zero(bit_length: usize) -> Self
+    where
+        Self: Sized
+    {
+        let mut res = Self::new();
+        res.set_capacity(bit_length).unwrap();
+        res.set_bit_length(bit_length).unwrap();
+        res.set_bits(0..bit_length, vec![false; bit_length]).unwrap();
+        res
+    }
+
+    /// Create a [`BitStoreTrait`] with `true` bits at given indices.
+    fn from_indices(bits: Vec<usize>) -> Self
+    where
+        Self: Sized
+    {
+        let mut res = BitStoreTrait::new();
+        match bits.iter().max() {
+            None => res,
+            Some(&n) => {
+                res.set_capacity(n + 1).unwrap();
+                res.set_bit_length(n + 1).unwrap();
+                for bit in bits {
+                    res.set_bit(bit, true).unwrap();
+                };
+                res
+            }
+        }
+    }
+
+    /// Return `true` if the [`BitStoreTrait`] is empty, *i.e.*, the `bit_length` == 0.
+    fn is_empty(&self) -> bool {
+        self.get_bit_length() == 0
+    }
+
+    /// Return `true` if the [`BitStoreTrait`] is zero, *i.e.*, the `bit_length` > 0 and all `bits` are `false`.
+    fn is_zero(&self) -> bool {
+        self.get_bit_length() > 0 && self.count_ones() == 0
+    }
+
+    /// Return the number of bits actually represented by the `BitStoreTrait`.
+    ///
+    /// **NB**: This may be less than the `capacity`.
+    fn get_bit_length(&self) -> usize;
+
+    /// Return the [`BitStoreTrait`] with the given [`bit_length`](BitStoreTrait::bit_length) or an "out of bounds" `Err`.
+    ///
+    /// The `bit_length` **must not** exceed the `capacity`. To avoid possible `Err`, first use [`set_capacity()](BitStore::set_capacity()).
+    fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str>;
+
+    /// Return the *capacity* of the [`BitStoreTrait`] in bits, which is the number of bits that *can* be represented.
+    fn get_capacity(&self) -> usize;
+
+    /// Return the `BitStoreTrait` with the given `capacity`, growing it if needed without increasing the [`bit_length`](BitStore::get_bit_length()), or an "out of bounds" `Err`.
+    ///
+    ///  This **must** equal or exceed the [`bit_length`](BitStore::get_bit_length()). To avoid possible `Err`, before increasing the `bit_length`, first use [`set_capacity()](BitStore::set_capacity()).
+    fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str>;
+
+    /// Return a validated [`Range`] into the [`BitStoreTrait`] or an "out of bounds" `Err`.
+    fn valid_range<T: RangeBounds<usize>>(&self, range: T) -> Result<Range<usize>, &'static str> {
+        let start = match range.start_bound() {
+            Bound::Excluded(&value) => value + 1,
+            Bound::Included(&value) => value,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Excluded(&value) => value,
+            Bound::Included(&value) => value + 1,
+            Bound::Unbounded => self.get_bit_length(),
+        };
+        if start <= end && start <= self.get_bit_length() && end <= self.get_bit_length() {
+            Ok(Range { start, end })
+        } else {
+            Err("out of bounds for BitStore")
+        }
+    }
+
+    /// Return a `Vec` of `bool` values of the given range of bits, or an "out of bounds" `Err`.
+    fn get_bits(&self, range: Range<usize>) -> Result<Vec<bool>, &'static str>;
+
+    /// Return the `bool` value of the given bit, or an "out of bounds" `Err`.
+    fn get_bit(&self, idx: usize) -> Result<bool, &'static str> {
+        self.get_bits(idx..(idx + 1)).map(|x| x[0])
+    }
+
+    // Return the `BitStoreTrait` with the given range of bits set to the given `bool` values, or an "out of bounds" `Err`.
+    fn set_bits<T: RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str>;
+
+    // Return the `BitStoreTrait` with the given bit set to the given `bool` value, or an "out of bounds" `Err`.
+    fn set_bit(&mut self, idx: usize, value: bool) -> Result<&mut Self, &'static str> {
+        self.set_bits(idx..(idx + 1), vec![value])
+    }
+
+    /// Return the count of `true` bits in the `BitStoreTrait`.
+    fn count_ones(&self) -> usize {
+        self.get_bits(0..self.get_bit_length())
+            .unwrap()
+            .iter()
+            .filter(|&&x| x)
+            .count()
+    }
+
+    /// Return the given `Vec` of `BitStoreTrait`s *normalized* to have the same `bit_length` and `capacity()`.
+    fn normalize(bitstores: &[Self]) -> Vec<Self>
+    where
+        Self: Sized + Clone
+    {
         let mut res = vec![];
-        res.extend_from_slice(faces);
+        res.extend_from_slice(bitstores);
         if res.len() > 1 {
-            let max_bit_length = faces.iter()
+            let max_bit_length = bitstores.iter()
                 .max_by(
                     |&a, &b|
-                    a.get_bit_length().cmp(&b.bit_length))
+                    a.get_bit_length().cmp(&b.get_bit_length()))
                 .unwrap()
                 .get_bit_length();
-            // for idx in 0..res.len() {
-            //     if res[idx].bit_length < max_bit_length {
-            //         res[idx].set_capacity(max_bit_length).unwrap();
-            //         res[idx].set_bit_length(max_bit_length).unwrap();
-            //     }
-            // }
             for bs in &mut res {
-                if bs.bit_length < max_bit_length {
+                if bs.get_bit_length() < max_bit_length {
                     bs.set_capacity(max_bit_length).unwrap();
                     bs.set_bit_length(max_bit_length).unwrap();
                 }

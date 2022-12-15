@@ -12,7 +12,7 @@ use std::fmt::{Write, Debug};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 // use itertools::Itertools;
 
-pub use crate::bitstore::BitStore;
+pub use crate::bitstore::*;
 
 /// A `struct` to implement *binary relation*s as a [`Vec`] of [`BitStore`] bit fields oriented along a `major_axis`.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -92,7 +92,7 @@ impl Relation for BRel {
         };
         BRel {
             major_axis,
-            contents: vec![BitStore::zero(bit_length); vec_length],
+            contents: vec![BitStoreTrait::zero(bit_length); vec_length],
         }
     }
 
