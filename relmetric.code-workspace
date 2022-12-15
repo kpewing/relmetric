@@ -6,11 +6,13 @@
 	],
 	"settings": {
 		"cSpell.words": [
+			"Appl",
 			"bitand",
 			"bitor",
 			"bitxor",
 			"blockcounts",
 			"blocksums",
+			"Comput",
 			"Hasse",
 			"isdisjnt",
 			"relmetric",
