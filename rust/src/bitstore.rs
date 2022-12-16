@@ -13,154 +13,6 @@ use std::fmt::{Write, Debug};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Index};
 // use itertools::Itertools;
 
-/// A type for storing *bits* in a variable-length [`Vec`] of [`u8`]s.
-///
-/// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BStore {
-    /// Count of bits represented.
-    bit_length: usize,
-    /// Container for the bits being represented.
-    bits: Vec<u8>,
-}
-
-impl BStore {
-    pub fn new() -> Self {
-        Default::default()
-    }
-}
-
-impl BitStore for BStore {
-
-    fn new() -> Self {
-        Self::new()
-    }
-
-    fn zero(bit_length: usize) -> Self {
-        if bit_length == 0 {
-            BStore {
-                bit_length,
-                bits: vec![]
-            }
-        } else if bit_length % u8::BITS as usize > 0 {
-            BStore {
-                bit_length,
-                bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
-            }
-        } else {
-            BStore {
-                bit_length,
-                bits: vec![0u8; bit_length / u8::BITS as usize]
-            }
-        }
-    }
-
-    fn get_bit_length(&self) -> usize {
-        self.bit_length
-    }
-
-    fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
-        if value == self.bit_length {
-            Ok(self)
-        } else if value > self.bit_length && value <= self.get_capacity() {
-            self.bit_length = value;
-            Ok(self)
-        } else {
-            Err("out of bounds for BitStore")
-        }
-    }
-
-    /// Return the *capacity* of the [`BitStoreTrait`] in bits, which is the number of bits that *can* be represented.
-    fn get_capacity(&self) -> usize {
-        self.bits.len() * u8::BITS as usize
-    }
-
-    fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str> {
-        let cap = self.get_capacity();
-        if value < self.bit_length {
-            Err("can't reduce BitStore capacity below bit_length")
-        } else if value > cap {
-            self.bits.extend(vec![0u8; 1 + (value - cap) / u8::BITS as usize]);
-            Ok(self)
-        } else if value < cap {
-            self.bits = self.bits[0..(1 + value / u8::BITS as usize)].to_vec();
-            Ok(self)
-        } else {
-            Ok(self)
-        }
-    }
-
-    fn get_bits(&self, range: Range<usize>) -> Result<Vec<bool>, &'static str> {
-        const ROW_MASK: [u8; 8] = [
-            0b10000000u8,
-            0b01000000u8,
-            0b00100000u8,
-            0b00010000u8,
-            0b00001000u8,
-            0b00000100u8,
-            0b00000010u8,
-            0b00000001u8,
-        ];
-        let f = |x| {
-            let the_int = x / u8::BITS as usize;
-            let the_bit = x % u8::BITS as usize;
-            if self.bits.is_empty() {
-                false
-            } else {
-                self.bits[the_int] & ROW_MASK[the_bit] > 0
-            }
-        };
-        Ok(self.valid_range(range)?.map(f).collect())
-    }
-
-    fn set_bits<T: RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str> {
-        const ROW_MASK: [u8; 8] = [
-            0b10000000u8,
-            0b01000000u8,
-            0b00100000u8,
-            0b00010000u8,
-            0b00001000u8,
-            0b00000100u8,
-            0b00000010u8,
-            0b00000001u8,
-        ];
-        for (idx, &val) in zip(self.valid_range(range)?, values.iter()) {
-            let the_int = idx / u8::BITS as usize;
-            let the_bit = idx % u8::BITS as usize;
-            // print!("set_bits cap:{} bit_len:{} int:{} bit:{} self:{:b}", self.get_capacity(), self.get_bit_length(), the_int, the_bit, self);
-            if val {
-                self.bits[the_int] |= ROW_MASK[the_bit];
-            } else {
-                self.bits[the_int] &= ! (ROW_MASK[the_bit] as u8);
-            }
-            // println!("->{:b}", self);
-        }
-        Ok(self)
-    }
-
-    fn count_ones(&self) -> usize {
-        const REST_MASK: [u8; 8] = [
-            0b10000000u8,
-            0b11000000u8,
-            0b11100000u8,
-            0b11110000u8,
-            0b11111000u8,
-            0b11111100u8,
-            0b11111110u8,
-            0b11111111u8,
-        ];
-        if self.bit_length > 0 {
-            let last_int = (self.get_bit_length() - 1) / u8::BITS as usize;
-            // let last_count = (self.bits[last_int] & REST_MASK[(self.get_capacity() - self.bit_length) % u8::BITS as usize]).count_ones() as usize;
-            let last_count = (self.bits[last_int] & REST_MASK[self.get_bit_length() - last_int * u8::BITS as usize - 1]).count_ones() as usize;
-            self.bits[..last_int].iter().fold(last_count, |acc, x| acc + x.count_ones() as usize)
-        } else {
-            0
-        }
-    }
-
-}
-
 /// A `trait` for a *bit store*.
 pub trait BitStore {
     /// Create a new, empty *bit store*.
@@ -220,10 +72,16 @@ pub trait BitStore {
     /// Return the *capacity* of the *bit store* in bits, which is the number of bits that *can* be represented.
     fn get_capacity(&self) -> usize;
 
-    /// Return the `BitStoreTrait` with the given `capacity`, growing it if needed without increasing the [`bit_length`](BitStore::get_bit_length()), or an "out of bounds" `Err`.
+    /// Return the *bit store* with the given `capacity`, growing it if needed without increasing the [`bit_length`](BitStore::get_bit_length()), or an "out of bounds" `Err`.
     ///
     ///  This **must** equal or exceed the [`bit_length`](BitStore::get_bit_length()). To avoid possible `Err`, before increasing the `bit_length`, first use [`set_capacity()](BitStore::set_capacity()).
     fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str>;
+
+    /// Return the contents of the *bit store* as a raw `Vec<u8>`.
+    fn get_raw_bits(&self) -> Vec<u8>;
+
+    /// Return the *bit store* after setting its contents to the given raw `Vec<u8>`.
+    fn set_raw_bits(&mut self, bits: Vec<u8>) -> &mut Self;
 
     /// Return a validated [`Range`] into the *bit store* or an "out of bounds" `Err`.
     fn valid_range<T: RangeBounds<usize>>(&self, range: T) -> Result<Range<usize>, &'static str> {
@@ -295,44 +153,26 @@ pub trait BitStore {
 
 }
 
-impl Index<usize> for BStore {
-    type Output = bool;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        match self.get_bit(index).unwrap() {
-            true => &true,
-            false => &false
-        }
-    }
-}
-
-impl From<Vec<bool>> for BStore {
-    fn from(bools: Vec<bool>) -> Self {
-        let mut res = BStore::new();
-        res.set_capacity(bools.len()).unwrap();
-        res.set_bit_length(bools.len()).unwrap();
-        res.set_bits(0..bools.len(), bools).unwrap();
-        res
-    }
-}
-
-// Use a macro to generate the [`From<Vec<_>.`] implementations for [`BStore`] for all the integer types.
+// Some private macros to help implement [`BitStore`]
+//
+// A macro to generate the [`From<Vec<_>.`] implementations for a [`BitStore`] for all the integer types.
+#[macro_export]
 macro_rules! impl_bitstore_from_vec_int {
-    ( $( u8 )? ) => {
-        impl From<Vec<u8>> for BStore {
+    ( $name:ident, $( u8 )? ) => {
+        impl From<Vec<u8>> for $name {
             fn from(ints: Vec<u8>) -> Self {
-                BStore {
+                $name {
                     bit_length: ints.len() * u8::BITS as usize,
                     bits: ints,
                 }
             }
         }
     };
-    ( $( $x:ty ),+ ) => {
+    ( $name:ident, $( $x:ty ),+ ) => {
         $(
-            impl From<Vec<$x>> for BStore {
+            impl From<Vec<$x>> for $name {
                 fn from(ints: Vec<$x>) -> Self {
-                    BStore {
+                    $name {
                         bit_length: ints.len() * <$x>::BITS as usize,
                         bits: ints
                             .iter()
@@ -348,13 +188,13 @@ macro_rules! impl_bitstore_from_vec_int {
         )*
     };
 }
-impl_bitstore_from_vec_int!(u8, u16, u32, u64, u128, usize);
 
-// Use a macro to generate the various Display implementations for [`BStore`].
+// A macro to generate the various [`Display`] implementations for [`BitStore`].
+#[macro_export]
 macro_rules! impl_bitstore_display {
-    ( $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
-        impl fmt::$fmt for BStore {
-            /// Show a big-endian binary representation of the [`BStore`] on one line.
+    ( $name:ident, $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
+        impl fmt::$fmt for $name {
+            /// Show a big-endian binary representation of the [`$name`] on one line.
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let whole_ints = self.bit_length / u8::BITS as usize;
                 let rest_bits = self.bit_length % u8::BITS as usize;
@@ -398,32 +238,30 @@ macro_rules! impl_bitstore_display {
         }
     };
 }
-impl_bitstore_display!(Binary, "{:08b}", ", {:b}", "{:b}");
-impl_bitstore_display!(LowerHex, "{:02x}", ", {:x}", "{:x}");
-impl_bitstore_display!(UpperHex, "{:02X}", ", {:X}", "{:X}");
 
-// Use a macro to generate the 4 logical / bit operations on [`BStore`]s.
+// A macro to generate the four logical / bit operations for [`BitStore`]s.
+#[macro_export]
 macro_rules! impl_bitstore_bit_logic {
-    ( Not $(, $func:tt, $op:tt)? ) => {
-        impl Not for BStore {
+    ( $name:ident, Not $(, $func:tt, $op:tt)? ) => {
+        impl Not for $name {
             type Output = Self;
 
-            /// Performs the unary [`!!`](std::ops::Not) operations for a [`BStore`].
+            /// Performs the unary [`!!`](std::ops::Not) operations for a [`$name`].
             fn not(self) -> Self::Output {
-                BStore {
+                $name {
                     bit_length: self.bit_length,
                     bits: self.bits.iter().map(|x| !x).collect(),
                 }
             }
         }
     };
-    ( $trait:tt, $func:tt, $op:tt ) => {
-        impl $trait for BStore {
+    ( $name:ident, $trait:tt, $func:tt, $op:tt ) => {
+        impl $trait for $name {
             type Output = Self;
 
-            /// Performs the [`&`](std::ops::$trait::$func) operation for two [`BStore`]s of same `bit_length`.
+            /// Performs the [`&`](std::ops::$trait::$func) operation for two [`$name`]s of same `bit_length`.
             ///
-            /// Panics if the two [`BStore`]s don't have the same `bit_length`.
+            /// Panics if the two [`$name`]s don't have the same `bit_length`.
             fn $func(self, rhs: Self) -> Self::Output {
                 if self.is_empty() {
                     rhs
@@ -432,12 +270,12 @@ macro_rules! impl_bitstore_bit_logic {
                 } else {
                     assert!(
                         self.bit_length == rhs.bit_length,
-                        "BStore::$func requires non-empty BStores to have equal bit_length but: {} != {}",
+                        "$name::$func requires non-empty $names to have equal bit_length but: {} != {}",
                         self.bit_length,
                         rhs.bit_length
                     );
-                    assert!(self.bits.len() == rhs.bits.len(), "BStore::$func requires non-empty BStores to have equal length bit fields but: {} != {}", self.bits.len(), rhs.bits.len());
-                    BStore {
+                    assert!(self.bits.len() == rhs.bits.len(), "$name::$func requires non-empty $names to have equal length bit fields but: {} != {}", self.bits.len(), rhs.bits.len());
+                    $name {
                         bit_length: self.bit_length,
                         bits: zip(self.bits, rhs.bits)
                             .map(|(s, r)| s $op r)
@@ -448,10 +286,179 @@ macro_rules! impl_bitstore_bit_logic {
         }
     }
 }
-impl_bitstore_bit_logic!(Not, not, !);
-impl_bitstore_bit_logic!(BitAnd, bitand, &);
-impl_bitstore_bit_logic!(BitOr, bitor, |);
-impl_bitstore_bit_logic!(BitXor, bitxor, ^);
+
+/// A [`macro_rule`](https://doc.rust-lang.org/reference/macros-by-example.html) to define `struct`s that implement [`BitStore`].
+#[macro_export]
+macro_rules! impl_bitstore {
+    ( $name:tt, $title:literal ) => {
+        /// $title
+        ///
+        /// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
+        #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        pub struct $name {
+            /// Count of bits represented.
+            bit_length: usize,
+            /// Container for bit being represented.
+            bits: Vec<u8>
+        }
+
+        impl $name {
+            pub fn new() -> Self {
+                Default::default()
+            }
+        }
+
+        impl BitStore for $name {
+            fn new() -> Self {
+                Self::new()
+            }
+
+            fn zero(bit_length: usize) -> Self {
+                if bit_length == 0 {
+                    $name {
+                        bit_length,
+                        bits: vec![]
+                    }
+                } else if bit_length % u8::BITS as usize > 0 {
+                    $name {
+                        bit_length,
+                        bits: vec![0u8; 1 + bit_length / u8::BITS as usize]
+                    }
+                } else {
+                    $name {
+                        bit_length,
+                        bits: vec![0u8; bit_length / u8::BITS as usize]
+                    }
+                }
+            }
+
+            fn get_bit_length(&self) -> usize {
+                self.bit_length
+            }
+
+            fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str> {
+                if value == self.bit_length {
+                    Ok(self)
+                } else if value > self.bit_length && value <= self.get_capacity() {
+                    self.bit_length = value;
+                    Ok(self)
+                } else {
+                    Err("out of bounds for BitStore")
+                }
+            }
+
+            fn get_capacity(&self) -> usize {
+                self.bits.len() * u8::BITS as usize
+            }
+
+            fn set_capacity(&mut self, value: usize) -> Result<&mut Self, &'static str> {
+                let cap = self.get_capacity();
+                if value < self.bit_length {
+                    Err("can't reduce BitStore capacity below bit_length")
+                } else if value > cap {
+                    let n = (value - cap) / u8::BITS as usize + if (value - cap) % u8::BITS as usize > 0 { 1 } else { 0 };
+                    self.bits.extend(vec![0u8; n]);
+                    Ok(self)
+                } else if value < cap {
+                    let n = value / u8::BITS as usize + if value % u8::BITS as usize > 0 { 1 } else { 0 };
+                    self.bits = self.bits[0..n].to_vec();
+                    Ok(self)
+                } else {
+                    Ok(self)
+                }
+            }
+
+            fn get_raw_bits(&self) -> Vec<u8> {
+                self.bits.clone()
+            }
+
+            fn set_raw_bits(&mut self, bits: Vec<u8>) -> &mut Self {
+                self.bits = bits;
+                self
+            }
+
+            fn get_bits(&self, range: std::ops::Range<usize>) -> Result<Vec<bool>, &'static str> {
+                const ROW_MASK: [u8; 8] = [
+                    0b10000000u8,
+                    0b01000000u8,
+                    0b00100000u8,
+                    0b00010000u8,
+                    0b00001000u8,
+                    0b00000100u8,
+                    0b00000010u8,
+                    0b00000001u8,
+                ];
+                let f = |x| {
+                    let the_int = x / u8::BITS as usize;
+                    let the_bit = x % u8::BITS as usize;
+                    if self.bits.is_empty() {
+                        false
+                    } else {
+                        self.bits[the_int] & ROW_MASK[the_bit] > 0
+                    }
+                };
+                Ok(self.valid_range(range)?.map(f).collect())
+            }
+
+            fn set_bits<T: std::ops::RangeBounds<usize>>(&mut self, range: T, values: Vec<bool>) -> Result<&mut Self, &'static str> {
+                const ROW_MASK: [u8; 8] = [
+                    0b10000000u8,
+                    0b01000000u8,
+                    0b00100000u8,
+                    0b00010000u8,
+                    0b00001000u8,
+                    0b00000100u8,
+                    0b00000010u8,
+                    0b00000001u8,
+                ];
+                for (idx, &val) in zip(self.valid_range(range)?, values.iter()) {
+                    let the_int = idx / u8::BITS as usize;
+                    let the_bit = idx % u8::BITS as usize;
+                    if val {
+                        self.bits[the_int] |= ROW_MASK[the_bit];
+                    } else {
+                        self.bits[the_int] &= ! (ROW_MASK[the_bit] as u8);
+                    }
+                }
+                Ok(self)
+            }
+        }
+
+        impl Index<usize> for $name {
+            type Output = bool;
+
+            fn index(&self, index: usize) -> &Self::Output {
+                match self.get_bit(index).unwrap() {
+                    true => &true,
+                    false => &false
+                }
+            }
+        }
+
+        impl From<Vec<bool>> for $name {
+            fn from(bools: Vec<bool>) -> Self {
+                let mut res = $name::new();
+                res.set_capacity(bools.len()).unwrap();
+                res.set_bit_length(bools.len()).unwrap();
+                res.set_bits(0..bools.len(), bools).unwrap();
+                res
+            }
+        }
+
+        crate::impl_bitstore_from_vec_int!($name, u8, u16, u32, u64, u128, usize);
+
+        crate::impl_bitstore_display!($name, Binary, "{:08b}", ", {:b}", "{:b}");
+        crate::impl_bitstore_display!($name, LowerHex, "{:02x}", ", {:x}", "{:x}");
+        crate::impl_bitstore_display!($name, UpperHex, "{:02X}", ", {:X}", "{:X}");
+
+        crate::impl_bitstore_bit_logic!($name, Not, not, !);
+        crate::impl_bitstore_bit_logic!($name, BitAnd, bitand, &);
+        crate::impl_bitstore_bit_logic!($name, BitOr, bitor, |);
+        crate::impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
+
+    };
+}
+impl_bitstore!(BStore, "A `struct` to store bit as a [`BitStore`].");
 
 // Unit Tests
 mod tests {

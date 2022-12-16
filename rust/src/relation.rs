@@ -12,7 +12,10 @@ use std::fmt::{Write, Debug};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 // use itertools::Itertools;
 
+use itertools::Itertools;
+
 pub use crate::bitstore::*;
+use crate::impl_bitstore;
 
 /// A `struct` to implement *binary relation*s as a [`Vec`] of [`BStore`] bit fields oriented along a `major_axis`.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -636,7 +639,7 @@ impl fmt::Binary for BRel {
     }
 }
 
-// Use a macro to generate the 4 logical / bit operations on [`BRel`]s.
+// Use a macro to generate the four logical / bit operations on [`BRel`]s.
 macro_rules! impl_brel_bitops {
     ( Not $( , $func:tt, $op:tt )? ) => {
         impl Not for BRel {
@@ -739,77 +742,67 @@ impl Sub for BRel {
     }
 }
 
-/// A `struct` to represent a *column* in a *binary relation* as a [`BStore`]. Provided as a convenience for creating [`BRel`]s.
-///
-/// **NB**: To manipulate as a [`BStore`](crate::bitstore::BStore), convert it to/from [`BStore`] with [`From<BStore>`] and [`From<Column>`].
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Column(BStore);
+impl_bitstore!(Column, "A `struct` to represent a *column* in a *binary relation* as a [`BitStore`].");
 
-impl Column {
-    pub fn new() -> Self {
-        Default::default()
+impl From<Column> for BStore {
+    fn from(col: Column) -> Self {
+        let mut res = BStore::new();
+        let len = col.get_bit_length();
+        res.set_capacity(len).unwrap();
+        res.set_bit_length(len).unwrap();
+        res.set_raw_bits(col.get_raw_bits());
+        res
     }
 }
 
 impl From<BStore> for Column {
-    fn from(bitstore: BStore) -> Self {
-        Column(bitstore)
-    }
-}
-
-impl From<Column> for BStore {
-    fn from(column: Column) -> Self {
-        column.0
+    fn from(bs: BStore) -> Self {
+        let mut res = Column::new();
+        let len = bs.get_bit_length();
+        res.set_capacity(len).unwrap();
+        res.set_bit_length(len).unwrap();
+        res.set_raw_bits(bs.get_raw_bits());
+        res
     }
 }
 
 impl From<Vec<Column>> for BRel {
     fn from(columns: Vec<Column>) -> Self {
-        let bs: Vec<BStore> = columns.into_iter()
-            // .map(|x| x.0)
-            .map(|x| BStore::from(x))
-            .collect();
         BRel {
             major_axis: Axis::Column,
-            contents: BStore::normalize(&bs)
-        }
+            contents: columns.into_iter().map(|x| BStore::from(x)).collect_vec() }
     }
 }
 
-/// A `struct` to represent a *row* in a *binary relation* as a [`BStore`].Provided as a for creating [`BRel`]s.
-///
-/// **NB**: To manipulate as a [`BStore`](crate::bitstore::BStore), convert it to/from [`BStore`] with [`From<BStore>`] and [`From<Row>`].
-#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Row(BStore);
+impl_bitstore!(Row, "A `struct` to represent a *row* in a *binary relation* as a [`BitStore`].");
 
-impl Row {
-    pub fn new() -> Self {
-        Default::default()
+impl From<Row> for BStore {
+    fn from(col: Row) -> Self {
+        let mut res = BStore::new();
+        let len = col.get_bit_length();
+        res.set_capacity(len).unwrap();
+        res.set_bit_length(len).unwrap();
+        res.set_raw_bits(col.get_raw_bits());
+        res
     }
 }
 
 impl From<BStore> for Row {
-    fn from(bitstore: BStore) -> Self {
-        Row(bitstore)
-    }
-}
-
-impl From<Row> for BStore {
-    fn from(column: Row) -> Self {
-        column.0
+    fn from(bs: BStore) -> Self {
+        let mut res = Row::new();
+        let len = bs.get_bit_length();
+        res.set_capacity(len).unwrap();
+        res.set_bit_length(len).unwrap();
+        res.set_raw_bits(bs.get_raw_bits());
+        res
     }
 }
 
 impl From<Vec<Row>> for BRel {
     fn from(columns: Vec<Row>) -> Self {
-        let bs: Vec<BStore> = columns.into_iter()
-            // .map(|x| x.0)
-            .map(|x| BStore::from(x))
-            .collect();
         BRel {
             major_axis: Axis::Row,
-            contents: BStore::normalize(&bs)
-        }
+            contents: columns.into_iter().map(|x| BStore::from(x)).collect_vec() }
     }
 }
 
@@ -1262,14 +1255,14 @@ mod tests {
 
     #[test]
     fn column_new_works() {
-        assert_eq!(Column::new(), Column(BStore::new()));
+        assert_eq!(Column::new(), Column::from(BStore::new()));
     }
 
     #[test]
     fn column_from_to_work() {
         let bs1 = BStore::from_indices(vec![2, 4, 8]);
-        assert_eq!(Column::from(bs1.clone()), Column(bs1.clone()));
-        assert_eq!(BStore::from(Column(bs1.clone())), bs1.clone());
+        assert_eq!(Column::from(bs1.clone()), Column::from(bs1.clone()));
+        assert_eq!(BStore::from(Column::from(bs1.clone())), bs1.clone());
     }
 
     #[test]
@@ -1281,14 +1274,16 @@ mod tests {
 
     #[test]
     fn row_new_works() {
-        assert_eq!(Row::new(), Row(BStore::new()));
+        let r = Row::new();
+        let bs = BStore::new();
+        assert_eq!((r.get_bit_length(), r.get_bits(0..r.get_bit_length())), (bs.get_bit_length(), bs.get_bits(0..bs.get_bit_length())));
     }
 
     #[test]
     fn row_from_to_work() {
         let bs1 = BStore::from_indices(vec![2, 4, 8]);
-        assert_eq!(Row::from(bs1.clone()), Row(bs1.clone()));
-        assert_eq!(BStore::from(Row(bs1.clone())), bs1.clone());
+        assert_eq!(Row::from(bs1.clone()), Row::from(bs1.clone()));
+        assert_eq!(BStore::from(Row::from(bs1.clone())), bs1.clone());
     }
 
     #[test]
