@@ -1,6 +1,6 @@
 /*! Abstract Simplicial Complexes
 
-This modules creates the [`AbSiCo`] representing an *abstract simplicial complex*, along with supporting `trait`s and implementing `struct`s.
+This modules creates the [`AbstractSimplicialComplex`] `trait` and an implementing `struct` [`AbSiCo`] representing an *abstract simplicial complex*, along with supporting `trait`s and implementing `struct`s.
  */
 
 // use core::fmt;
@@ -15,55 +15,6 @@ use std::{fmt::{Debug}};
 use itertools::Itertools;
 
 use crate::bitstore::*;
-
-/// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
-///
-/// Just wraps the [*generators*](AbstractSimplicialComplex::generators()).
-#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AbSiCo(Vec<BStore>);
-
-impl AbSiCo {
-    pub fn new() -> Self
-    {
-        Default::default()
-    }
-}
-
-impl AbstractSimplicialComplex for AbSiCo {
-    type Face = BStore;
-
-    fn generators(&self) -> Vec<Self::Face> {
-        self.0.to_vec()
-    }
-
-    fn insert_face (&mut self, face: Self::Face) -> &mut Self {
-        // println!("insert_face self:{:?} face:{:b} contains:{}", self, face, self.contains(&face));
-        if self.contains(&face) {
-            self
-        } else {
-            self.0.push(face);
-            self.0 = BStore::normalize(&self.0);
-            self
-        }
-    }
-
-    fn remove_face (&mut self, face: Self::Face) -> &mut Self {
-        for idx in 0..self.0.len() {
-            if self.0[idx].is_ancestor_of(&face) {
-                for v in self.0[idx].vertices() {
-                    self.0[idx].set_bit(v, false).unwrap();
-                }
-            }
-        }
-        self
-    }
-}
-
-impl From<Vec<BStore>> for AbSiCo {
-    fn from(faces: Vec<BStore>) -> Self {
-        AbSiCo(Face::maximals(&BStore::normalize(&faces)))
-    }
-}
 
 /// A generic trait for an *abstract simplicial complex* of its associated type [`Face`](AbstractSimplicialComplex::Face)s.
 ///
@@ -356,7 +307,6 @@ pub trait Face {
     }
 }
 
-
 impl Face for BStore {
     type Vertex = usize;
 
@@ -409,6 +359,55 @@ impl Face for BStore {
         }
     }
 
+}
+
+/// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
+///
+/// Just wraps the [*generators*](AbstractSimplicialComplex::generators()).
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AbSiCo(Vec<BStore>);
+
+impl AbSiCo {
+    pub fn new() -> Self
+    {
+        Default::default()
+    }
+}
+
+impl AbstractSimplicialComplex for AbSiCo {
+    type Face = BStore;
+
+    fn generators(&self) -> Vec<Self::Face> {
+        self.0.to_vec()
+    }
+
+    fn insert_face (&mut self, face: Self::Face) -> &mut Self {
+        // println!("insert_face self:{:?} face:{:b} contains:{}", self, face, self.contains(&face));
+        if self.contains(&face) {
+            self
+        } else {
+            self.0.push(face);
+            self.0 = BStore::normalize(&self.0);
+            self
+        }
+    }
+
+    fn remove_face (&mut self, face: Self::Face) -> &mut Self {
+        for idx in 0..self.0.len() {
+            if self.0[idx].is_ancestor_of(&face) {
+                for v in self.0[idx].vertices() {
+                    self.0[idx].set_bit(v, false).unwrap();
+                }
+            }
+        }
+        self
+    }
+}
+
+impl From<Vec<BStore>> for AbSiCo {
+    fn from(faces: Vec<BStore>) -> Self {
+        AbSiCo(Face::maximals(&BStore::normalize(&faces)))
+    }
 }
 
 // Unit Tests

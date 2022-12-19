@@ -1,6 +1,6 @@
 /*! Bit Stores
 
-This module creates the [`BitStore`] for efficiently representing expandable vectors of `bool` values. The `trait` and the implementing `struct` ___ are used in the other modules for [`Row`](crate::relation::Row)s and [`Column`](crate::relation::Column)s of [`Relation`](crate::relation::Relation)s, for [`Face`](crate::absico::Face)s of [`AbSiCo`](crate::absico::AbSiCo)s, and elements of [`Dowker`](crate::dowker::Dowker)s.
+This module creates the [`BitStore`] `trait` for efficiently representing expandable vectors of `bool` values.
  */
 
 use core::fmt;
@@ -35,12 +35,10 @@ pub trait BitStore {
     where
         Self: Sized
     {
-        let mut res = BitStore::new();
         match bits.iter().max() {
-            None => res,
+            None => Self::new(),
             Some(&n) => {
-                res.set_capacity(n + 1).unwrap();
-                res.set_bit_length(n + 1).unwrap();
+                let mut res = Self::zero(n + 1);
                 for bit in bits {
                     res.set_bit(bit, true).unwrap();
                 };
@@ -59,12 +57,12 @@ pub trait BitStore {
         self.get_bit_length() > 0 && self.count_ones() == 0
     }
 
-    /// Return the number of bits actually represented by the `BitStoreTrait`.
+    /// Return the number of bits actually represented by the *bit store*.
     ///
     /// **NB**: This may be less than the `capacity`.
     fn get_bit_length(&self) -> usize;
 
-    /// Return the *bit store* with the given [`bit_length`](BitStoreTrait::bit_length) or an "out of bounds" `Err`.
+    /// Return the *bit store* with the given `bit_length` or an "out of bounds" `Err`.
     ///
     /// The `bit_length` **must not** exceed the `capacity`. To avoid possible `Err`, first use [`set_capacity()](BitStore::set_capacity()).
     fn set_bit_length(&mut self, value: usize) -> Result<&mut Self, &'static str>;
@@ -186,56 +184,6 @@ macro_rules! impl_bitstore_from_vec_int {
             }
 
         )*
-    };
-}
-
-// A macro to generate the various [`Display`] implementations for [`BitStore`].
-#[macro_export]
-macro_rules! impl_bitstore_display {
-    ( $name:ident, $fmt:tt, $whole:tt, $part:tt, $rest:tt ) => {
-        impl fmt::$fmt for $name {
-            /// Show a big-endian binary representation of the [`$name`] on one line.
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let whole_ints = self.bit_length / u8::BITS as usize;
-                let rest_bits = self.bit_length % u8::BITS as usize;
-                const REST_MASK: [u8; 8] = [
-                    0b10000000u8,
-                    0b11000000u8,
-                    0b11100000u8,
-                    0b11110000u8,
-                    0b11111000u8,
-                    0b11111100u8,
-                    0b11111110u8,
-                    0b11111111u8,
-                ];
-
-                let mut s = String::from("[");
-                s.push_str(
-                    &self
-                        .bits
-                        .iter()
-                        .take(whole_ints)
-                        .map(|x| format!($whole, x))
-                        .collect::<Vec<String>>()
-                        .join(", "),
-                );
-                if rest_bits > 0 {
-                    if whole_ints == 0 {
-                        write!(s, $rest, self.bits[whole_ints] & REST_MASK[rest_bits]).unwrap();
-                    } else {
-                        write!(
-                            s,
-                            $part,
-                            // self.bits[whole_ints] & REST_MASK[rest_bits - 1]
-                            (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits)
-                        )
-                        .unwrap();
-                    }
-                }
-                s.push(']');
-                write!(f, "{s}")
-            }
-        }
     };
 }
 
@@ -445,17 +393,65 @@ macro_rules! impl_bitstore {
             }
         }
 
-        crate::impl_bitstore_from_vec_int!($name, u8, u16, u32, u64, u128, usize);
+        $crate::impl_bitstore_from_vec_int!($name, u8, u16, u32, u64, u128, usize);
 
-        crate::impl_bitstore_display!($name, Binary, "{:08b}", ", {:b}", "{:b}");
-        crate::impl_bitstore_display!($name, LowerHex, "{:02x}", ", {:x}", "{:x}");
-        crate::impl_bitstore_display!($name, UpperHex, "{:02X}", ", {:X}", "{:X}");
+        $crate::impl_bitstore_bit_logic!($name, Not, not, !);
+        $crate::impl_bitstore_bit_logic!($name, BitAnd, bitand, &);
+        $crate::impl_bitstore_bit_logic!($name, BitOr, bitor, |);
+        $crate::impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
 
-        crate::impl_bitstore_bit_logic!($name, Not, not, !);
-        crate::impl_bitstore_bit_logic!($name, BitAnd, bitand, &);
-        crate::impl_bitstore_bit_logic!($name, BitOr, bitor, |);
-        crate::impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
+        impl fmt::Binary for $name {
+            /// Show a big-endian binary representation of the [`$name`] on one line.
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let whole_ints = self.get_bit_length() / u8::BITS as usize;
+                let rest_bits = self.get_bit_length() % u8::BITS as usize;
+                const REST_MASK: [u8; 8] = [
+                    0b10000000u8,
+                    0b11000000u8,
+                    0b11100000u8,
+                    0b11110000u8,
+                    0b11111000u8,
+                    0b11111100u8,
+                    0b11111110u8,
+                    0b11111111u8,
+                ];
 
+                println!("BS Display bs:{:?}", self);
+                println!(" whole_ints:{}, rest_bits:{}", whole_ints, rest_bits);
+                let mut s = String::from("[");
+                s.push_str(
+                    &self
+                    .bits
+                    .iter()
+                    .take(whole_ints)
+                    .map(|x| format!("{:08b}", x))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                );
+                if rest_bits > 0 {
+                    if whole_ints > 0 {
+                        s.push_str(", ")
+                    };
+                    println!(" chunk:{:08b} shift:{} shifted:{:0width$b}",
+                        (self.bits[whole_ints] & REST_MASK[rest_bits - 1]),
+                        (u8::BITS as usize - rest_bits),
+                        (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits),
+                        width = rest_bits);
+                    println!("  has 'width':{}", rest_bits);
+                    // let width = rest_bits;
+                    // let the_int = (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits);
+                    write!(
+                        s,
+                        "{:0width$b}",
+                        (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits),
+                        width = rest_bits
+                    )
+                    .unwrap();
+                }
+                s.push(']');
+                write!(f, "{s}")
+            }
+        }
     };
 }
 impl_bitstore!(BStore, "A `struct` to store bit as a [`BitStore`].");
@@ -622,6 +618,7 @@ mod tests {
     #[test]
     fn bitstore_binary_works() {
         assert_eq!(format!("{:b}", BStore::from(vec![0b01010101u8, 0b00110001])), "[01010101, 00110001]".to_string());
+        assert_eq!(format!("{:b}", BStore::from(vec![false, true, false, true, false])), "[01010]".to_string());
     }
 
 }

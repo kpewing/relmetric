@@ -14,6 +14,25 @@ use crate::bitstore::BStore;
 use crate::relation::*;
 use crate::absico::*;
 
+/// A `trait` for a *Dowker Complex*.
+///
+/// A *Dowker Complex* represents the rows or columns of a *binary relation* as [`Face`]s of an [*abstract simplicial complex*](AbstractSimplicialComplex) and assigns a [*differential weight*](Dowker::diff_weight()) and a [*total weight*](Dowker::tot_weight()) to each such [`Face`].
+///
+/// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
+pub trait DowkerComplex {
+    type A: AbstractSimplicialComplex;
+    type F: Face;
+
+    /// Return `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
+    fn is_empty(&self) -> bool;
+
+    /// Return the *differential weight* of the given [`Face`] within the [`Dowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *binary relation*.
+    fn diff_weight(&self, face: &Self::F) -> usize;
+
+    /// Return the *total weight* of the given [`Face`] within the [`Dowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *binary relation*.
+    fn tot_weight(&self, face: &Self::F) -> usize;
+}
+
 /// A `struct` to implement *Dowker Complexes*.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Dowker {
@@ -70,25 +89,6 @@ impl DowkerComplex for Dowker {
         )
     }
 
-}
-
-/// A `trait` for a *Dowker Complex*.
-///
-/// A *Dowker Complex* represents the rows or columns of a *binary relation* as [`Face`]s of an [*abstract simplicial complex*](AbstractSimplicialComplex) and assigns a [*differential weight*](Dowker::diff_weight()) and a [*total weight*](Dowker::tot_weight()) to each such [`Face`].
-///
-/// For more on *Dowker Complexes*, *see, e.g.*, [Michael Robinson, "Cosheaf representations of relations and Dowker complexes", J Appl. and Comput. Topology 6, 27–63 (2022)](https://doi.org/10.1007/s41468-021-00078-y).
-pub trait DowkerComplex {
-    type A: AbstractSimplicialComplex;
-    type F: Face;
-
-    /// Return `true` if this [`Dowker`] is empty, *i.e.*, has no [`Face`]s in it.
-    fn is_empty(&self) -> bool;
-
-    /// Return the *differential weight* of the given [`Face`] within the [`Dowker`], *i.e.*, the number of times that [`Face`] appears within the *Dowker Complex*'s *binary relation*.
-    fn diff_weight(&self, face: &Self::F) -> usize;
-
-    /// Return the *total weight* of the given [`Face`] within the [`Dowker`], *i.e.*, the sum of [`diff_weight()`](Dowker::diff_weight())s of all [`Face`]s within the given [`Face`] that appear within the *Dowker Complex*'s *binary relation*.
-    fn tot_weight(&self, face: &Self::F) -> usize;
 }
 
 // Unit Tests

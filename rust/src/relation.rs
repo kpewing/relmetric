@@ -1,6 +1,11 @@
 /*! Relations
 
-This module creates the [`Relation`] to represent a *binary relation* and relevant calculations on and with them. It provides a default implementation [`BRel`]
+This module creates the [`Relation`] `trait` to represent a *binary relation* and relevant calculations on and with them, including the following:
+- [`transpose()`](Relation::transpose()) to convert between [`Column`](Axis::Column)-major and [`Row`](Axis::Row)-major orientations,
+- various logical (bit) operations, like [`BitAnd (&)`], and multiset operations [`Add`] and [`Sub`],
+- [`Matches`] to specify functions between two *binary relations*, and
+- [`weight()`](Relation::weight()), [`min_weight()`](Relation::min_weight()), and [`distance()`](Relation::distance()) between *binary relations*.
+It also provides the `struct` [`BRel`] as default implementation, which can be formed from `Vec`s of [`Column`]s or [`Row`]s and printed as a binary matrix.
  */
 
 use core::fmt;
@@ -17,7 +22,146 @@ use itertools::Itertools;
 pub use crate::bitstore::*;
 use crate::impl_bitstore;
 
-/// A `struct` to implement *binary relation*s as a [`Vec`] of [`BStore`] bit fields oriented along a `major_axis`.
+/// A `trait` for a *binary relation*.
+pub trait Relation {
+
+    /// Create a new, empty *binary relation*.
+    fn new() -> Self;
+
+    /// Return `true` if the *binary relation* is empty, *i.e.*, an array representation would be zero-length in both [`Axis::Row`] and [`Axis::Column`] dimensions.
+    fn is_empty(&self) -> bool;
+
+    /// Return `true` if the *binary relation* is not [`empty`](Relation::is_empty()) but there are no relations, *i.e.*, an array representation would be non-empty but have only `false` in it.
+    fn is_zero(&self) -> bool;
+
+    /// Return a new *binary relation* is not [`empty`](Relation::is_empty()), *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
+    fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
+
+    /// Return the length of the [`Axis::Row`] dimension of the *binary relation*.
+    fn get_row_count(&self) -> usize;
+
+    /// Return the length of the [`Axis::Column`] dimension of the *binary relation*.
+    fn get_col_count(&self) -> usize;
+
+    /// Return the [`Axis::Row`] identified by the given `idx`.
+    fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+
+    /// Set the [`Axis::Row`] identified by the given `idx` to the given `Vec<bool>` of bits.
+    fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str>;
+
+    /// Return the [`Axis::Column`] identified by the given `idx`.
+    fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
+
+    /// Set the [`Axis::Column`] identified by the given `idx` to the given `Vec<bool>` of bits.
+    fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
+
+    /// Get the `bool` value at the given `row` and `col`.
+    fn get_cell(&self, row: usize, col: usize) -> Result<bool, &'static str>;
+
+    /// Get the `bool` value at the given `row` and `col`.
+    fn set_cell(&mut self, row: usize, col: usize, val: bool) -> Result<&mut Self, &'static str>;
+
+    /// Return the transposed *binary relation* with the same `major_axis`.
+    fn transpose(&self) -> Self;
+
+    /// Return the [`DJGrouping`] partition of the *binary relation* by its [`Axis`].
+    ///
+    /// **NB**: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
+    fn djgroup(&self) -> DJGrouping;
+
+    /// Return the [`DJGrouping`] partition of the *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// **NB**: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
+    fn djgroup_by(&self, axis: &Axis) -> DJGrouping;
+
+    /// Return the "kappa" value for a *binary relation*.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn kappa(&self, max_count: Option<usize>) -> usize;
+
+    /// Return the "kappa" value for a *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn kappa_by(&self, max_count: Option<usize>, axis: &Axis) -> usize;
+
+    /// Return an upper bound on the "distance" between two *binary relations*.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn rel_dist_bound(&self, other: &Self) -> usize;
+
+    /// Return an upper bound on the "distance" between two *binary relations* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn rel_dist_bound_by(&self, other: &Self, axis: &Axis) -> usize;
+
+    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other`.
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` or `other`.
+    fn match_indices(&self, other: &Self, matches: &[usize]) -> Self;
+
+    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other` by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` or `other`.
+    fn match_indices_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> Self;
+
+    /// Return the "weight" of a function from `self` to `other` (represented as `matches`).
+    ///
+    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` and `other`.
+    fn weight(&self, other: &Self, matches: &[usize]) -> u32;
+
+    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `matches`), using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
+    ///
+    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Panics
+    /// - If `matches` is out of range for either `self` and `other`.
+    fn weight_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> u32;
+
+    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn min_weight(&self, other: &Self) -> u32;
+
+    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`, using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    fn min_weight_by(&self, other: &Self, axis: &Axis) -> u32;
+
+    /// Return the "distance" between two *binary relations*, using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
+    ///
+    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Example
+    ///
+    fn distance_by(&self, other: &Self, axis: &Axis) -> u32;
+
+    /// Return the "distance" between two *binary relations*.
+    ///
+    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
+    ///
+    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
+    ///
+    /// # Example
+    ///
+    fn distance(&self, other: &Self) -> u32;
+}
+
+/// A `struct` that implements [`Relation`] as a [`Vec`] of [`BStore`] bit fields oriented along a `major_axis`.
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct BRel {
     /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
@@ -621,9 +765,13 @@ impl fmt::Binary for BRel {
         if !self.get_contents().len() > 0 {
             match self.major_axis {
                 Axis::Column => {
-                    write!(s, "{:b}", self[0]).unwrap();
-                    for c in 1..self.get_col_count() {
-                        write!(s, "\n {:b}", self[c]).unwrap();
+                    let mut rows = (0..self.get_row_count())
+                        .map(|x| Row::from(self.get_row(x).unwrap()))
+                        .collect_vec();
+                    rows = BitStore::normalize(&rows);
+                    write!(s, "{:b}", rows[0]).unwrap();
+                    for r in rows.iter().skip(1) {
+                        write!(s, "\n {:b}", r).unwrap();
                     }
                 },
                 Axis::Row => {
@@ -770,7 +918,7 @@ impl From<Vec<Column>> for BRel {
     fn from(columns: Vec<Column>) -> Self {
         BRel {
             major_axis: Axis::Column,
-            contents: columns.into_iter().map(|x| BStore::from(x)).collect_vec() }
+            contents: columns.into_iter().map(BStore::from).collect_vec() }
     }
 }
 
@@ -802,147 +950,25 @@ impl From<Vec<Row>> for BRel {
     fn from(columns: Vec<Row>) -> Self {
         BRel {
             major_axis: Axis::Row,
-            contents: columns.into_iter().map(|x| BStore::from(x)).collect_vec() }
+            contents: columns.into_iter().map(BStore::from).collect_vec() }
     }
 }
 
-/// A `trait` for a *binary relation*.
-pub trait Relation {
+impl IntoIterator for BRel {
+    type Item = BStore;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
 
-    /// Create a new, empty *binary relation*.
-    fn new() -> Self;
+    fn into_iter(self) -> Self::IntoIter {
+        self.contents.into_iter()
+    }
+}
 
-    /// Return `true` if the *binary relation* is empty, *i.e.*, an array representation would be zero-length in both [`Axis::Row`] and [`Axis::Column`] dimensions.
-    fn is_empty(&self) -> bool;
-
-    /// Return `true` if the *binary relation* is not [`empty`](Relation::is_empty()) but there are no relations, *i.e.*, an array representation would be non-empty but have only `false` in it.
-    fn is_zero(&self) -> bool;
-
-    /// Return a new *binary relation* is not [`empty`](Relation::is_empty()), *i.e.*, an array representation would have non-zero-length [`Axis::Row`] and [`Axis::Column`] dimensions, but nothing is related to anything else, *i.e.*, all bits in the array are `false`.
-    fn zero(row_count: usize, col_count: usize, major_axis: Axis) -> Self;
-
-    /// Return the length of the [`Axis::Row`] dimension of the *binary relation*.
-    fn get_row_count(&self) -> usize;
-
-    /// Return the length of the [`Axis::Column`] dimension of the *binary relation*.
-    fn get_col_count(&self) -> usize;
-
-    /// Return the [`Axis::Row`] identified by the given `idx`.
-    fn get_row(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
-
-    /// Set the [`Axis::Row`] identified by the given `idx` to the given `Vec<bool>` of bits.
-    fn set_row(&mut self, idx: usize, row: Vec<bool>) -> Result<&mut Self, &'static str>;
-
-    /// Return the [`Axis::Column`] identified by the given `idx`.
-    fn get_col(&self, idx: usize) -> Result<Vec<bool>, &'static str>;
-
-    /// Set the [`Axis::Column`] identified by the given `idx` to the given `Vec<bool>` of bits.
-    fn set_col(&mut self, idx: usize, col: Vec<bool>) -> Result<&mut Self, &'static str>;
-
-    /// Get the `bool` value at the given `row` and `col`.
-    fn get_cell(&self, row: usize, col: usize) -> Result<bool, &'static str>;
-
-    /// Get the `bool` value at the given `row` and `col`.
-    fn set_cell(&mut self, row: usize, col: usize, val: bool) -> Result<&mut Self, &'static str>;
-
-    /// Return the transposed *binary relation* with the same `major_axis`.
-    fn transpose(&self) -> Self;
-
-    /// Return the [`DJGrouping`] partition of the *binary relation* by its [`Axis`].
-    ///
-    /// **NB**: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
-    fn djgroup(&self) -> DJGrouping;
-
-    /// Return the [`DJGrouping`] partition of the *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// **NB**: The [`DJGrouping`] of an [`empty`](Relation::is_empty()) *binary relation* is, itself "empty", i.e., has no [`DJGroup`]s in it.
-    fn djgroup_by(&self, axis: &Axis) -> DJGrouping;
-
-    /// Return the "kappa" value for a *binary relation*.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn kappa(&self, max_count: Option<usize>) -> usize;
-
-    /// Return the "kappa" value for a *binary relation* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn kappa_by(&self, max_count: Option<usize>, axis: &Axis) -> usize;
-
-    /// Return an upper bound on the "distance" between two *binary relations*.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn rel_dist_bound(&self, other: &Self) -> usize;
-
-    /// Return an upper bound on the "distance" between two *binary relations* by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn rel_dist_bound_by(&self, other: &Self, axis: &Axis) -> usize;
-
-    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other`.
-    ///
-    /// # Panics
-    /// - If `matches` is out of range for either `self` or `other`.
-    fn match_indices(&self, other: &Self, matches: &[usize]) -> Self;
-
-    /// Return a new *binary relation* resulting from applying `matches` between `self` and `other` by the given [`Axis`], using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// # Panics
-    /// - If `matches` is out of range for either `self` or `other`.
-    fn match_indices_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> Self;
-
-    /// Return the "weight" of a function from `self` to `other` (represented as `matches`).
-    ///
-    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
-    ///
-    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    ///
-    /// # Panics
-    /// - If `matches` is out of range for either `self` and `other`.
-    fn weight(&self, other: &Self, matches: &[usize]) -> u32;
-
-    /// Return the "weight" of a [`Column`] function from `self` to `other` (represented as `matches`), using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// Given a function *f* that matches each [`Column`] in one *binary relation* *r1* to a some [`Column`] in the other *binary relation* *r2*, the *weight* of *f* is the largest count of differences seen in any row after matching with *f*, plus the number of any [`Column`]s in *r2* that were not matched.
-    ///
-    /// So the weight of any function between empty *binary relations* is 0, that of any function to an empty *binary relation* returns the highest row-count of ones in `self`, and similarly for any function from an empty *binary relation* to any `other`.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    ///
-    /// # Panics
-    /// - If `matches` is out of range for either `self` and `other`.
-    fn weight_by(&self, other: &Self, matches: &[usize], axis: &Axis) -> u32;
-
-    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn min_weight(&self, other: &Self) -> u32;
-
-    /// Return the minimum [`Relation::weight()`] of all possible [`Column`] functions from `self` to `other`, using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    fn min_weight_by(&self, other: &Self, axis: &Axis) -> u32;
-
-    /// Return the "distance" between two *binary relations*, using possibly costly [`transpose()`](Relation::transpose()) to convert the *binary relation*'s [`Axis`] if needed.
-    ///
-    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    ///
-    /// # Example
-    ///
-    fn distance_by(&self, other: &Self, axis: &Axis) -> u32;
-
-    /// Return the "distance" between two *binary relations*.
-    ///
-    /// The *distance* is defined as the maximum of the minimum *weight* between the *binary relations* in each direction. This is achieved in the direction toward the *binary relation* with the larger number of [`Column`]s, in essence, because no one-for-one column-matching function can cover the all of the [`Column`]s in the destination (not [*surjective*](https://en.wikipedia.org/wiki/Surjective_function)), guaranteeing a minimum penalty.
-    ///
-    /// See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
-    ///
-    /// # Example
-    ///
-    fn distance(&self, other: &Self) -> u32;
+impl FromIterator<BStore> for BRel {
+    fn from_iter<T: IntoIterator<Item = BStore>>(iter: T) -> Self {
+        let mut res = BRel::new();
+        res.set_contents(&iter.into_iter().collect::<Vec<BStore>>());
+        res
+    }
 }
 
 /// Represents the partition of a *binary relation* [`BRel`] into [`DJGroup`]s.
@@ -1680,13 +1706,11 @@ mod tests {
             BStore::from(vec![0b1011u8]),
             BStore::from(vec![0b0011u8]),
         ]);
-        // ex2_r1.trim_row_count();
         let ex2_r2 = BRel::from(vec![
             BStore::from(vec![0b1100u8]),
             BStore::from(vec![0b1011u8]),
             BStore::from(vec![0b0101u8]),
         ]);
-        // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
         let ex2_matches21 = vec![1, 2, 0];
         let ex2_res12 = ex2_r1.match_indices(&ex2_r2, &ex2_matches12);
@@ -1725,13 +1749,11 @@ mod tests {
             BStore::from(vec![0b10110000u8]),
             BStore::from(vec![0b00110000u8]),
         ]);
-        // ex2_r1.trim_row_count();
         let ex2_r2 = BRel::from(vec![
             BStore::from(vec![0b11000000u8]),
             BStore::from(vec![0b10110000u8]),
             BStore::from(vec![0b01010000u8]),
         ]);
-        // ex2_r2.trim_row_count();
         let ex2_matches12 = vec![0, 1, 1, 2];
         let ex2_res12 = ex2_r1.weight(&ex2_r2, &ex2_matches12);
         let ex2_want12 = 1;
@@ -1861,4 +1883,36 @@ mod tests {
         assert_eq!(res, r1_t);
     }
 
+    #[test]
+    fn example2() {
+        let r1 = BRel::from(vec![
+            Column::from(vec![true, true, false, false]),
+            Column::from(vec![true, false, true, false]),
+            Column::from(vec![true, false, true, true]),
+            Column::from(vec![false, false, true, true]),
+        ]);
+        assert_eq!(format!("{:b}", r1),"\
+[[1110]
+ [1000]
+ [0111]
+ [0011]]\
+");
+        let r2 = BRel::from(vec![
+            Column::from(vec![true, true, false, false]),
+            Column::from(vec![true, false, true, true]),
+            Column::from(vec![false, true, false, true]),
+        ]);
+        assert_eq!(format!("{:b}", r2),"\
+[[110]
+ [101]
+ [010]
+ [011]]\
+");
+        assert_eq!(r1.distance(&r2), 2);
+        assert_eq!(r2.distance(&r1), 2);
+    }
 }
+
+// Column::from_indices(vec![0, 1]),
+// Column::from_indices(vec![0, 2, 3]),
+// Column::from_indices(vec![1, 3]),

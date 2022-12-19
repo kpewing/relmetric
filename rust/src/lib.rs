@@ -11,44 +11,43 @@ Building on these core types, the library also provides an abstraction of
 As a quick overview, we reproduce the calculations of Examples 1 and 2 in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^3]
 
 ## Example 1
-use relmetric::*;
-let r1 = Relation::from(vec![Column::from(vec![1u8])]);
-let r2 = Relation::new();
+```
+use relmetric::relation::*;
+let r1 = BRel::from(vec![Column::from_indices(vec![0])]);
+let r2 = BRel::new();
 assert!(r2.is_empty());
 assert_eq!(r1.min_weight(&r2), 1);
 assert_eq!(r1.distance(&r2), 1);
-
+```
 ## Example 2
-use relmetric::*;
-let mut r1 = Relation::from(vec![
-    Column::from(vec![0b1100u8]),
-    Column::from(vec![0b1010u8]),
-    Column::from(vec![0b1011u8]),
-    Column::from(vec![0b0011u8]),
+```
+use relmetric::relation::*;
+let mut r1 = BRel::from(vec![
+    Column::from(vec![true, true, false, false]),
+    Column::from(vec![true, false, true, false]),
+    Column::from(vec![true, false, true, true]),
+    Column::from(vec![false, false, true, true]),
 ]);
-let mut r2 = Relation::from(vec![
-    Column::from(vec![0b1100u8]),
-    Column::from(vec![0b1011u8]),
-    Column::from(vec![0b0101u8]),
+assert_eq!(format!("{:b}", r1),"\
+[[1110]
+ [1000]
+ [0111]
+ [0011]]\
+");
+let mut r2 = BRel::from(vec![
+    Column::from(vec![true, true, false, false]),
+    Column::from(vec![true, false, true, true]),
+    Column::from(vec![false, true, false, true]),
 ]);
+assert_eq!(format!("{:b}", r2),"\
+[[110]
+ [101]
+ [010]
+ [011]]\
+");
 assert_eq!(r1.distance(&r2), 2);
 assert_eq!(r2.distance(&r1), 2);
-r1.trim_row_count();
-let pretty_r1 = "\
-1110
-1000
-0111
-0011
-";
-assert_eq!(format!("{}", r1), pretty_r1);
-r2.trim_row_count();
-let pretty_r2 = "\
-110
-101
-010
-011
-";
-assert_eq!(format!("{}", r2), pretty_r2);
+```
 
 ## Other Cool Stuff
 
