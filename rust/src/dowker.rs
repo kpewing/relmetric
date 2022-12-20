@@ -57,7 +57,7 @@ where
     fn from(relation: &BRel) -> Self {
         let mut res = Dowker::new();
         for f in &relation.get_contents() {
-            println!("Dowker::from<BRel> f:{:b} = {:b}", f, f);
+            // println!("Dowker::from<BRel> f:{:b} = {:b}", f, f);
             res.generators.insert_face(f.clone());
             res.weights.entry(f.clone())
                 .and_modify(|diff_weight| *diff_weight += 1)

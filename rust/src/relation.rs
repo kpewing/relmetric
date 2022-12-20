@@ -509,33 +509,23 @@ impl Relation for BRel {
 
     fn rel_dist_bound(&self, other: &Self) -> usize {
         // NB: `Rust` vectors are base 0 rather than `lua`'s base 1.
-        println!("rel1:\n{:b}\n", self);
-        println!("rel2:\n{:b}\n", other);
+        // println!("rel1:\n{:b}\n", self);
+        // println!("rel2:\n{:b}\n", other);
 
         let rel1_count = self.contents.len();
         let rel2_count = other.contents.len();
         let delta12 = self.clone() - (*other).clone();
         let delta21 = other.clone() - (*self).clone();
 
-        println!("delta12:\n{:b}\n", delta12);
-        println!("delta21:\n{:b}\n", delta21);
+        // println!("delta12:\n{:b}\n", delta12);
+        // println!("delta21:\n{:b}\n", delta21);
 
         let delta12_count = delta12.contents.len();
         let delta21_count = delta21.contents.len();
         let kappa12 = delta12.kappa(Some(delta21_count));
         let kappa21 = delta21.kappa(Some(delta12_count));
 
-        println!(
-            "rel_dist_bound = max({}, {}) - min({} - {} + {}, {} - {} + {})",
-            rel1_count,
-            rel2_count,
-            rel1_count,
-            delta12_count,
-            kappa12,
-            rel2_count,
-            delta12_count,
-            kappa21
-        );
+        // println!( "rel_dist_bound = max({}, {}) - min({} - {} + {}, {} - {} + {})", rel1_count, rel2_count, rel1_count, delta12_count, kappa12, rel2_count, delta12_count, kappa21 );
 
         rel1_count.max(rel2_count)
             - (rel1_count - delta12_count + kappa12).min(rel2_count - delta21_count + kappa21)
@@ -553,16 +543,16 @@ impl Relation for BRel {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
-            println!("match_indices both empty");
+            // println!("match_indices both empty");
             self.clone()
         } else if self_empty {
-            println!("match_indices self_empty");
+            // println!("match_indices self_empty");
             BRel::zero(other.get_row_count(), other.get_col_count(), other.get_major_axis()).match_indices(other, matches)
         } else if other_empty {
-            println!("match_indices other_empty");
+            // println!("match_indices other_empty");
             self.match_indices(&BRel::zero(self.get_row_count(), self.get_col_count(), self.get_major_axis()), matches)
         } else {
-            println!("match_indices neither empty");
+            // println!("match_indices neither empty");
             assert!(matches.len() <= self.contents.len(), "BRel::match_indices() Invalid match: match.len() {} > self.contents.len() {}", matches.len(), self.contents.len());
             assert!(other.contents.len() >= *matches.iter().max().unwrap(), "BRel::match_indices() Invalid match: max matches[..] > self.contents.len() {}", other.contents.len());
 
@@ -586,11 +576,11 @@ impl Relation for BRel {
         let self_empty = self.is_empty();
         let other_empty = other.is_empty();
         if self_empty & other_empty {
-            println!("weight both empty\n");
+            // println!("weight both empty\n");
             0
         } else if self_empty {
             let other_len = other.contents.len();
-            println!("weight self_empty\n");
+            // println!("weight self_empty\n");
             *other
                 .contents
                 .iter()
@@ -607,7 +597,7 @@ impl Relation for BRel {
                 .max()
                 .unwrap()
         } else if other_empty {
-            println!("weight other_empty\n");
+            // println!("weight other_empty\n");
             let self_len = self.contents.len();
             *self
                 .contents
@@ -625,7 +615,7 @@ impl Relation for BRel {
                 .max()
                 .unwrap()
         } else {
-            println!("weight neither empty");
+            // println!("weight neither empty");
             let self_len = self.contents.len();
             let used_count = matches
             .iter()
@@ -653,10 +643,7 @@ impl Relation for BRel {
                 .iter()
                 .max()
                 .unwrap();
-            println!(
-                "matches:{:?}\nimage:\n{:b}\nbitxor_image:\n{:b}\npenalty:{} max_diff:{} weight:{}\n",
-                matches, image, bitxor_image, penalty, max_diff, penalty + max_diff
-            );
+            // println!( "matches:{:?}\nimage:\n{:b}\nbitxor_image:\n{:b}\npenalty:{} max_diff:{} weight:{}\n", matches, image, bitxor_image, penalty, max_diff, penalty + max_diff );
             penalty + max_diff
         }
     }
@@ -683,7 +670,7 @@ impl Relation for BRel {
             // check all matches
             for m in Matches::new(self_len, other_len) {
                 let w = self.weight(other, &m);
-                println!("min_weight:{} with weight:{} for match:{:?}", res, w, m);
+                // println!("min_weight:{} with weight:{} for match:{:?}", res, w, m);
                 if w < res {
                     res = w;
                 }
@@ -1193,7 +1180,7 @@ impl Iterator for Matches {
     type Item = Vec<usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        println!("{:?}", self);
+        // println!("{:?}", self);
         if self.matches.is_empty() {
             self.matches = vec![0; self.count1];
             self.current = 0;
