@@ -5,7 +5,9 @@ This modules creates the [`AbstractSimplicialComplex`] `trait` and an implementi
 
 use core::hash::Hash;
 use std::{fmt::{Debug}};
+
 use itertools::Itertools;
+use serde::{Serialize, Deserialize};
 
 use crate::bitstore::*;
 
@@ -358,7 +360,7 @@ impl Face for BStore {
 /// A `struct` to implement an [*abstract simplicial complex*](AbstractSimplicialComplex) on a *vertex set* of `usize`s.
 ///
 /// Just wraps the [*generators*](AbstractSimplicialComplex::generators()).
-#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct AbSiCo(Vec<BStore>);
 
 impl AbSiCo {

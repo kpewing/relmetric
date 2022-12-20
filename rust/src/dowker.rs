@@ -10,6 +10,8 @@ For more about *abstract simplicial complexes* and the *Dowker complex*, see [De
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 
+use serde::{Serialize, Deserialize};
+
 use crate::bitstore::BStore;
 use crate::relation::*;
 use crate::absico::*;
@@ -34,7 +36,7 @@ pub trait DowkerComplex {
 }
 
 /// A `struct` to implement *Dowker Complexes*.
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Dowker {
     /// The *Dowker Complex*'s generators.
     generators: AbSiCo,

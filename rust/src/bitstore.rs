@@ -7,11 +7,10 @@ use core::fmt;
 use core::ops::{Bound, Range, RangeBounds};
 use core::iter::zip;
 use core::hash::Hash;
-// use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
-// use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Index};
-// use itertools::Itertools;
+
+use serde::{Serialize, Deserialize};
 
 /// A `trait` for a *bit store*.
 pub trait BitStore {
@@ -242,7 +241,7 @@ macro_rules! impl_bitstore {
         /// $title
         ///
         /// Stores *bits* as [`bool`]s in a [`Vec`] of [`u8`] in little endian order, while enforcing a maximum `bit_length` for the whole store. Wraps getters and setters in a [`Result<_, &'static str>`] to manage out-of-bounds errors.
-        #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub struct $name {
             /// Count of bits represented.
             bit_length: usize,

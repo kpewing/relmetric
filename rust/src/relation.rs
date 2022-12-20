@@ -9,15 +9,12 @@ It also provides the `struct` [`BRel`] as default implementation, which can be f
  */
 
 use core::fmt;
-// use core::ops::{Bound, Range, RangeBounds};
 use core::iter::zip;
-// use core::hash::Hash;
-// use std::collections::BTreeMap;
 use std::fmt::{Write, Debug};
 use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
-// use itertools::Itertools;
 
 use itertools::Itertools;
+use serde::{Serialize, Deserialize};
 
 pub use crate::bitstore::*;
 
@@ -161,7 +158,7 @@ pub trait Relation {
 }
 
 /// A `struct` that implements [`Relation`] as a [`Vec`] of [`BStore`] bit fields oriented along a `major_axis`.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize, Deserialize)]
 pub struct BRel {
     /// The [`Axis`] of the *binary relation* whose elements are stored consecutively (default: [`Row`](Axis::Row)).
     major_axis: Axis,
@@ -206,7 +203,7 @@ impl BRel {
 }
 
 /// An `enum` of the two axes of a *binary relation*.
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub enum Axis {
     Column,
     #[default] Row,
