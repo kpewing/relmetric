@@ -20,9 +20,6 @@ use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 use itertools::Itertools;
 
 pub use crate::bitstore::*;
-use crate::impl_bitstore;
-use crate::impl_bitstore_from_vec_int;
-use crate::impl_bitstore_bit_logic;
 
 /// A `trait` for a *binary relation*.
 pub trait Relation {
@@ -739,7 +736,8 @@ impl From<Vec<BStore>> for BRel {
     fn from(bitstores: Vec<BStore>) -> Self {
         BRel {
             major_axis: BRel::default().major_axis,
-            contents: BStore::normalize(&bitstores) }
+            contents: BStore::normalize(&bitstores)
+        }
     }
 }
 
@@ -768,7 +766,7 @@ impl fmt::Binary for BRel {
             match self.major_axis {
                 Axis::Column => {
                     let mut rows = (0..self.get_row_count())
-                        .map(|x| Row::from(self.get_row(x).unwrap()))
+                        .map(|x| BStore::from(self.get_row(x).unwrap()))
                         .collect_vec();
                     rows = BitStore::normalize(&rows);
                     write!(s, "{:b}", rows[0]).unwrap();
@@ -892,59 +890,129 @@ impl Sub for BRel {
     }
 }
 
-impl_bitstore!(Column, "A `struct` to represent a *column* in a *binary relation* as a [`BitStore`].");
+// impl_bitstore!(Column, "A `struct` to represent a *column* in a *binary relation* as a [`BitStore`].");
+
+// impl From<Column> for BStore {
+//     fn from(col: Column) -> Self {
+//         let mut res = BStore::new();
+//         let len = col.get_bit_length();
+//         res.set_capacity(len).unwrap();
+//         res.set_bit_length(len).unwrap();
+//         res.set_raw_bits(col.get_raw_bits());
+//         res
+//     }
+// }
+
+// impl From<BStore> for Column {
+//     fn from(bs: BStore) -> Self {
+//         let mut res = Column::new();
+//         let len = bs.get_bit_length();
+//         res.set_capacity(len).unwrap();
+//         res.set_bit_length(len).unwrap();
+//         res.set_raw_bits(bs.get_raw_bits());
+//         res
+//     }
+// }
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Column(BStore);
+
+impl Column {
+    pub fn new() -> Self {
+        Column(BStore::new())
+    }
+
+    pub fn from_indices(bits: Vec<usize>) -> Self
+    where
+        Self: Sized
+    {
+        Column(BStore::from_indices(bits))
+    }
+}
+
 
 impl From<Column> for BStore {
     fn from(col: Column) -> Self {
-        let mut res = BStore::new();
-        let len = col.get_bit_length();
-        res.set_capacity(len).unwrap();
-        res.set_bit_length(len).unwrap();
-        res.set_raw_bits(col.get_raw_bits());
-        res
+        col.0
     }
 }
 
 impl From<BStore> for Column {
     fn from(bs: BStore) -> Self {
-        let mut res = Column::new();
-        let len = bs.get_bit_length();
-        res.set_capacity(len).unwrap();
-        res.set_bit_length(len).unwrap();
-        res.set_raw_bits(bs.get_raw_bits());
-        res
+        Column(bs)
+    }
+}
+
+impl From<Vec<bool>> for Column {
+    fn from(bools: Vec<bool>) -> Self {
+        Column(BStore::from(bools))
     }
 }
 
 impl From<Vec<Column>> for BRel {
-    fn from(columns: Vec<Column>) -> Self {
+    fn from(cols: Vec<Column>) -> Self {
         BRel {
             major_axis: Axis::Column,
-            contents: columns.into_iter().map(BStore::from).collect_vec() }
+            contents: BStore::normalize(&cols.into_iter().map(BStore::from).collect_vec())
+        }
     }
 }
 
-impl_bitstore!(Row, "A `struct` to represent a *row* in a *binary relation* as a [`BitStore`].");
+// impl_bitstore!(Row, "A `struct` to represent a *row* in a *binary relation* as a [`BitStore`].");
+
+// impl From<Row> for BStore {
+//     fn from(col: Row) -> Self {
+//         let mut res = BStore::new();
+//         let len = col.get_bit_length();
+//         res.set_capacity(len).unwrap();
+//         res.set_bit_length(len).unwrap();
+//         res.set_raw_bits(col.get_raw_bits());
+//         res
+//     }
+// }
+
+// impl From<BStore> for Row {
+//     fn from(bs: BStore) -> Self {
+//         let mut res = Row::new();
+//         let len = bs.get_bit_length();
+//         res.set_capacity(len).unwrap();
+//         res.set_bit_length(len).unwrap();
+//         res.set_raw_bits(bs.get_raw_bits());
+//         res
+//     }
+// }
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Row(BStore);
+
+impl Row {
+    pub fn new() -> Self {
+        Row(BStore::new())
+    }
+
+    pub fn from_indices(bits: Vec<usize>) -> Self
+    where
+        Self: Sized
+    {
+        Row(BStore::from_indices(bits))
+    }
+}
 
 impl From<Row> for BStore {
     fn from(col: Row) -> Self {
-        let mut res = BStore::new();
-        let len = col.get_bit_length();
-        res.set_capacity(len).unwrap();
-        res.set_bit_length(len).unwrap();
-        res.set_raw_bits(col.get_raw_bits());
-        res
+        col.0
     }
 }
 
 impl From<BStore> for Row {
     fn from(bs: BStore) -> Self {
-        let mut res = Row::new();
-        let len = bs.get_bit_length();
-        res.set_capacity(len).unwrap();
-        res.set_bit_length(len).unwrap();
-        res.set_raw_bits(bs.get_raw_bits());
-        res
+        Row(bs)
+    }
+}
+
+impl From<Vec<bool>> for Row {
+    fn from(bools: Vec<bool>) -> Self {
+        Row(BStore::from(bools))
     }
 }
 
@@ -1302,9 +1370,7 @@ mod tests {
 
     #[test]
     fn row_new_works() {
-        let r = Row::new();
-        let bs = BStore::new();
-        assert_eq!((r.get_bit_length(), r.get_bits(0..r.get_bit_length())), (bs.get_bit_length(), bs.get_bits(0..bs.get_bit_length())));
+        assert_eq!(Row::new(), Row::from(BStore::new()));
     }
 
     #[test]

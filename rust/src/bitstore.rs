@@ -154,7 +154,7 @@ pub trait BitStore {
 // Some private macros to help implement [`BitStore`]
 //
 // A macro to generate the [`From<Vec<_>.`] implementations for a [`BitStore`] for all the integer types.
-#[macro_export]
+// #[macro_export]
 macro_rules! impl_bitstore_from_vec_int {
     ( $name:ident, $( u8 )? ) => {
         impl From<Vec<u8>> for $name {
@@ -188,7 +188,7 @@ macro_rules! impl_bitstore_from_vec_int {
 }
 
 // A macro to generate the four logical / bit operations for [`BitStore`]s.
-#[macro_export]
+// #[macro_export]
 macro_rules! impl_bitstore_bit_logic {
     ( $name:ident, Not $(, $func:tt, $op:tt)? ) => {
         impl Not for $name {
@@ -236,7 +236,7 @@ macro_rules! impl_bitstore_bit_logic {
 }
 
 /// A [`macro_rule`](https://doc.rust-lang.org/reference/macros-by-example.html) to define `struct`s that implement [`BitStore`].
-#[macro_export]
+// #[macro_export]
 macro_rules! impl_bitstore {
     ( $name:tt, $title:literal ) => {
         /// $title
@@ -416,8 +416,8 @@ macro_rules! impl_bitstore {
                     0b11111111u8,
                 ];
 
-                println!("BS Display bs:{:?}", self);
-                println!(" whole_ints:{}, rest_bits:{}", whole_ints, rest_bits);
+                // println!("BS Display bs:{:?}", self);
+                // println!(" whole_ints:{}, rest_bits:{}", whole_ints, rest_bits);
                 let mut s = String::from("[");
                 s.push_str(
                     &self
@@ -432,12 +432,8 @@ macro_rules! impl_bitstore {
                     if whole_ints > 0 {
                         s.push_str(", ")
                     };
-                    println!(" chunk:{:08b} shift:{} shifted:{:0width$b}",
-                        (self.bits[whole_ints] & REST_MASK[rest_bits - 1]),
-                        (u8::BITS as usize - rest_bits),
-                        (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits),
-                        width = rest_bits);
-                    println!("  has 'width':{}", rest_bits);
+                    // println!(" chunk:{:08b} shift:{} shifted:{:0width$b}", (self.bits[whole_ints] & REST_MASK[rest_bits - 1]), (u8::BITS as usize - rest_bits), (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits), width = rest_bits);
+                    // println!("  has 'width':{}", rest_bits);
                     // let width = rest_bits;
                     // let the_int = (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits);
                     write!(
