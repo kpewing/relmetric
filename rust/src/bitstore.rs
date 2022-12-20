@@ -400,8 +400,15 @@ macro_rules! impl_bitstore {
         impl_bitstore_bit_logic!($name, BitOr, bitor, |);
         impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
 
+        impl fmt::Display for $name {
+            /// Show a big-endian representation on one line.
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                std::fmt::Binary::fmt(self, f)
+            }
+        }
+
         impl fmt::Binary for $name {
-            /// Show a big-endian binary representation of the [`$name`] on one line.
+            /// Show a big-endian binary representation on one line.
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let whole_ints = self.get_bit_length() / u8::BITS as usize;
                 let rest_bits = self.get_bit_length() % u8::BITS as usize;
@@ -416,8 +423,6 @@ macro_rules! impl_bitstore {
                     0b11111111u8,
                 ];
 
-                // println!("BS Display bs:{:?}", self);
-                // println!(" whole_ints:{}, rest_bits:{}", whole_ints, rest_bits);
                 let mut s = String::from("[");
                 s.push_str(
                     &self
@@ -432,8 +437,6 @@ macro_rules! impl_bitstore {
                     if whole_ints > 0 {
                         s.push_str(", ")
                     };
-                    // println!(" chunk:{:08b} shift:{} shifted:{:0width$b}", (self.bits[whole_ints] & REST_MASK[rest_bits - 1]), (u8::BITS as usize - rest_bits), (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits), width = rest_bits);
-                    // println!("  has 'width':{}", rest_bits);
                     // let width = rest_bits;
                     // let the_int = (self.bits[whole_ints] & REST_MASK[rest_bits - 1]) >> (u8::BITS as usize - rest_bits);
                     write!(
@@ -615,6 +618,12 @@ mod tests {
     fn bitstore_binary_works() {
         assert_eq!(format!("{:b}", BStore::from(vec![0b01010101u8, 0b00110001])), "[01010101, 00110001]".to_string());
         assert_eq!(format!("{:b}", BStore::from(vec![false, true, false, true, false])), "[01010]".to_string());
+    }
+
+    #[test]
+    fn bitstore_display_works() {
+        assert_eq!(format!("{}", BStore::from(vec![0b01010101u8, 0b00110001])), "[01010101, 00110001]".to_string());
+        assert_eq!(format!("{}", BStore::from(vec![false, true, false, true, false])), "[01010]".to_string());
     }
 
 }

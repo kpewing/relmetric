@@ -627,7 +627,7 @@ impl Relation for BRel {
             .sum::<u32>();
             let penalty = other.contents.len() as u32 - used_count;
             let image = self.match_indices(other, matches);
-            let bitxor_image = image.clone().bitxor(self.clone());
+            let bitxor_image = image.bitxor(self.clone());
             let max_diff = *bitxor_image
                 .contents
                 .iter()
@@ -742,10 +742,15 @@ impl IndexMut<usize> for BRel {
     }
 }
 
+impl fmt::Display for BRel {
+    /// Display the [`BRel`] as rows of big-endian binary representations of `u8` integers.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        std::fmt::Binary::fmt(&self, f)
+    }
+}
+
 impl fmt::Binary for BRel {
-    /// Display the [`BRel`] line-by-line, as big-endian binary of the `major_axis`, *i.e.* row-by-row for [column-major-axis](Axis::Column) and column-by-column for [column-major-axis](Axis::Column).
-    ///
-    /// **NB**: For [column-major-axis](Axis::Column), the result appears rotated by 90&deg; compared to the standard binary representation.
+    /// Display the [`BRel`] as rows of big-endian binary representations of `u8` integers.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = String::from("[");
         // if !self.is_empty() {
@@ -877,31 +882,7 @@ impl Sub for BRel {
     }
 }
 
-// impl_bitstore!(Column, "A `struct` to represent a *column* in a *binary relation* as a [`BitStore`].");
-
-// impl From<Column> for BStore {
-//     fn from(col: Column) -> Self {
-//         let mut res = BStore::new();
-//         let len = col.get_bit_length();
-//         res.set_capacity(len).unwrap();
-//         res.set_bit_length(len).unwrap();
-//         res.set_raw_bits(col.get_raw_bits());
-//         res
-//     }
-// }
-
-// impl From<BStore> for Column {
-//     fn from(bs: BStore) -> Self {
-//         let mut res = Column::new();
-//         let len = bs.get_bit_length();
-//         res.set_capacity(len).unwrap();
-//         res.set_bit_length(len).unwrap();
-//         res.set_raw_bits(bs.get_raw_bits());
-//         res
-//     }
-// }
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Column(BStore);
 
 impl Column {
@@ -945,31 +926,7 @@ impl From<Vec<Column>> for BRel {
     }
 }
 
-// impl_bitstore!(Row, "A `struct` to represent a *row* in a *binary relation* as a [`BitStore`].");
-
-// impl From<Row> for BStore {
-//     fn from(col: Row) -> Self {
-//         let mut res = BStore::new();
-//         let len = col.get_bit_length();
-//         res.set_capacity(len).unwrap();
-//         res.set_bit_length(len).unwrap();
-//         res.set_raw_bits(col.get_raw_bits());
-//         res
-//     }
-// }
-
-// impl From<BStore> for Row {
-//     fn from(bs: BStore) -> Self {
-//         let mut res = Row::new();
-//         let len = bs.get_bit_length();
-//         res.set_capacity(len).unwrap();
-//         res.set_bit_length(len).unwrap();
-//         res.set_raw_bits(bs.get_raw_bits());
-//         res
-//     }
-// }
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Row(BStore);
 
 impl Row {
@@ -1236,6 +1193,11 @@ mod tests {
     #[test]
     fn brel_binary_works() {
         assert_eq!(format!("{:b}", BRel::from(vec![BStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
+    }
+
+    #[test]
+    fn brel_display_works() {
+        assert_eq!(format!("{}", BRel::from(vec![BStore::from(vec![0b01010101u8])])), "[[01010101]]".to_string());
     }
 
     #[test]
