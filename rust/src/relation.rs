@@ -21,6 +21,8 @@ use itertools::Itertools;
 
 pub use crate::bitstore::*;
 use crate::impl_bitstore;
+use crate::impl_bitstore_from_vec_int;
+use crate::impl_bitstore_bit_logic;
 
 /// A `trait` for a *binary relation*.
 pub trait Relation {

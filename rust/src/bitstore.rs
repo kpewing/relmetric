@@ -393,12 +393,12 @@ macro_rules! impl_bitstore {
             }
         }
 
-        $crate::impl_bitstore_from_vec_int!($name, u8, u16, u32, u64, u128, usize);
+        impl_bitstore_from_vec_int!($name, u8, u16, u32, u64, u128, usize);
 
-        $crate::impl_bitstore_bit_logic!($name, Not, not, !);
-        $crate::impl_bitstore_bit_logic!($name, BitAnd, bitand, &);
-        $crate::impl_bitstore_bit_logic!($name, BitOr, bitor, |);
-        $crate::impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
+        impl_bitstore_bit_logic!($name, Not, not, !);
+        impl_bitstore_bit_logic!($name, BitAnd, bitand, &);
+        impl_bitstore_bit_logic!($name, BitOr, bitor, |);
+        impl_bitstore_bit_logic!($name, BitXor, bitxor, ^);
 
         impl fmt::Binary for $name {
             /// Show a big-endian binary representation of the [`$name`] on one line.

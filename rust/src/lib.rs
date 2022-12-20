@@ -1,10 +1,8 @@
 /*! # A Library for Calculations with Binary Relations
 
-The `relmetric` library creates an abstraction of a *binary relation*---a dynamically sized, 2-dimensional matrix representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`](relation::Relation), [`Column`](relation::Column), [`Matches`](relation::Matches), and [`DJGrouping`](relation::DJGrouping), and methods like [`Relation::new()`](relation::Relation::new()) and [`Relation::set_col`](relation::Relation::set_col) and overloaded logical operations like [`BitAnd (&)`](std::ops::BitAnd) and multiset operations [`Add` (+)](std::ops::Add) and [`Sub (-)`](std::ops::Sub) to manipulate them.
+The `relmetric` library creates an abstraction of a *binary relation*---a dynamically sized, 2-dimensional matrix representing whether objects in one set *X* relate to those in another *Y*. It offers core types [`Relation`](relation::Relation), [`Row`](relation::Row), and [`Column`](relation::Column), as well as functions between *binary relations*, called [`Matches`](relation::Matches), partitions into a disjoint [`DJGrouping`](relation::DJGrouping)s of *rows* or *columns*, and methods like [`Relation::new()`](relation::Relation::new()) and [`Relation::set_col()`](relation::Relation::set_col), overloaded logical operations like [`BitAnd (&)`](std::ops::BitAnd), and multiset operations [`Add` (+)](std::ops::Add) and [`Sub (-)`](std::ops::Sub) to manipulate them.
 
 Reflecting results of ongoing research, the library provides [`Relation::weight()`](relation::Relation::weight()) and [`Relation::distance()`](relation::Relation::distance()) to calculate the *weight* of a [`Matches`](relation::Matches) function between two [`Relation`](relation::Relation)s and the *distance* between two [`Relation`](relation::Relation)s, defined as the minimum *weight* of all functions in either direction between two *binary relations*. See [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).[^1] Because calculating *distance* exactly requires a combinatorial search all possible [`Matches`](relation::Matches), the method [`Relation::rel_dist_bound()`](relation::Relation::rel_dist_bound()) calculates a tight upper bound with *O*(*m* &times; *n*) complexity. See [*id.* at p. 33](https://arxiv.org/abs/2105.01690).[^2]
-
-Building on these core types, the library also provides an abstraction of
 
 # Overview
 
@@ -54,9 +52,9 @@ assert_eq!(r2.distance(&r1), 2);
 - Calculate the [*kappa* bound](relation::Relation::kappa()) defined in [*Ewing & Robinson*](https://arxiv.org/abs/2105.01690).
 - Iterate over all *n*^(*k*) (combinatorial) variations of *k* choices from a set of *n* numbers, with replacement using the [`Matches`](relation::Matches) [`Iterator`](std::iter::Iterator).
 - Pretty-print both a [`Relation`](relation::Relation) and an [`DJGrouping`](relation::DJGrouping) with the standard format [`Display`](std::fmt::Display).
-- Show easily human-readable binary and hexadecimal forms of both [`Column`](relation::Column)s and [`Relation`](relation::Relation)s using the standard formats [`Binary`](std::fmt::Binary), [`LowerHex`](std::fmt::LowerHex), and [`UpperHex`](std::fmt::UpperHex).
-- Total lexical ordering of [`Column`](relation::Column)s and [`Relation`](relation::Relation)s.
-- Binary arithmetic for both [`Column`](relation::Column)s and [`Relation`](relation::Relation)s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
+- Show easily human-readable binary forms using the standard [`Binary`](std::fmt::Binary) format.
+- Total lexical ordering of [`Row`](relation::Row)s, [`Column`](relation::Column)s, and [`Relation`](relation::Relation)s.
+- Binary arithmetic for both [`Row`](relation::Row)s, [`Column`](relation::Column)s, and [`Relation`](relation::Relation)s using the standard [`& (BitAnd)`](std::ops::BitAnd), [`| (BitOr)`](std::ops::BitOr), and [`^ (BitXor)`](std::ops::BitXor) operations.
 
 [^1]: Definitions 1 and 2, [Kenneth P. Ewing & Michael Robinson, "Metric Comparison of Relations," p. 7](https://arxiv.org/abs/2105.01690).
 

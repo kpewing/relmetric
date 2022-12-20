@@ -93,6 +93,8 @@ impl DowkerComplex for Dowker {
 
 // Unit Tests
 mod tests {
+    use crate::bitstore::BitStore;
+
     #[allow(unused_imports)]
     use super::*;
     #[allow(unused_imports)]
