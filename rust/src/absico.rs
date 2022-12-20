@@ -3,15 +3,8 @@
 This modules creates the [`AbstractSimplicialComplex`] `trait` and an implementing `struct` [`AbSiCo`] representing an *abstract simplicial complex*, along with supporting `trait`s and implementing `struct`s.
  */
 
-// use core::fmt;
-// use core::ops::{Bound, Range, RangeBounds};
-// use core::ops::{RangeBounds};
-// use core::iter::zip;
 use core::hash::Hash;
-// use std::collections::BTreeMap;
-// use std::fmt::{Write, Debug};
 use std::{fmt::{Debug}};
-// use std::ops::{Not, BitAnd, BitOr, BitXor, Sub, Add, Index, IndexMut};
 use itertools::Itertools;
 
 use crate::bitstore::*;
@@ -267,13 +260,13 @@ pub trait Face {
         res
     }
 
-    /// Return the subset of the given [`Vec`] of [`Face`]s that are not descendants of any other [`Face`]s in the given [`Vec`] of [`Face`]s.
+    /// Return the size-sorted subset of the given [`Vec`] of [`Face`]s that are not descendants of any other [`Face`]s in the given [`Vec`] of [`Face`]s.
     ///
     /// # Default Implementation
     /// - Panics if the capacity of the new [`Vec`] would exceed `isize::MAX` bytes.
     fn maximals(faces: &[Self]) -> Vec<Self>
     where
-        Self: Sized + Clone,
+        Self: Sized + Clone + Ord,
         Self::Vertex: PartialEq,
     {
         let mut res = vec![];
@@ -283,7 +276,8 @@ pub trait Face {
             if !res.iter().any(|g| (*f).is_descendant_of(g)) {
                 res.push((*f).clone())
             }
-        }
+        };
+        res.sort();
         res
     }
 
@@ -378,7 +372,8 @@ impl AbstractSimplicialComplex for AbSiCo {
     type Face = BStore;
 
     fn generators(&self) -> Vec<Self::Face> {
-        self.0.to_vec()
+        // self.0.to_vec()
+        Face::maximals(&self.0.to_vec())
     }
 
     fn insert_face (&mut self, face: Self::Face) -> &mut Self {
@@ -684,9 +679,7 @@ mod tests {
         let bs2 = BStore::from_vertices(vec![4, 8]);
         let bs3 = BStore::from_vertices(vec![2, 8]);
         let asc1 = AbSiCo::from(vec![bs1.clone(), bs2.clone(), bs3.clone()]);
-        let res = asc1.generators().sort();
-        let want = vec![bs1.clone(), bs2.clone(), bs3.clone()].sort();
-        assert_eq!(res, want);
+        assert_eq!(asc1.generators(), vec![bs1.clone()]);
         assert_eq!(AbSiCo::from(vec![]).generators(), vec![]);
     }
 
