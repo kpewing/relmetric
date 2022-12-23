@@ -44,8 +44,10 @@ R = relmetric.Relation:fromints({
   {0x01},
   {0x01}
 })
--- [ ] fix: E4_8 = relmetric.Relation:fromcols({R[2], R[3], R[4], R[5]})
--- [ ] fix: E4_9 = relmetric.Relation:fromcols({R[1], R[2], R[3], R[4], R[5]})
+-- [ ] fix:
+E4_8 = relmetric.Relation:fromcols({R[2], R[3], R[4], R[5]})
+-- [ ] fix:
+E4_9 = relmetric.Relation:fromcols({R[1], R[2], R[3], R[4], R[5]})
 E4_17R1 = relmetric.Relation:fromints({
   {0x0b, 0x08},
   {0x07, 0x08},
